@@ -1,7 +1,10 @@
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from meetup_bot.bot.handlers import chat_member
+from meetup_bot.bot.middlewares import DbSessionMiddleware
 from meetup_bot.config import Settings
 
 
@@ -9,5 +12,8 @@ def create_bot(settings: Settings) -> Bot:
     return Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
 
-def create_dispatcher() -> Dispatcher:
-    return Dispatcher()
+def create_dispatcher(session_factory: async_sessionmaker[AsyncSession]) -> Dispatcher:
+    dispatcher = Dispatcher()
+    dispatcher.update.outer_middleware(DbSessionMiddleware(session_factory))
+    dispatcher.include_router(chat_member.create_router())
+    return dispatcher

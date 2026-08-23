@@ -15,7 +15,7 @@
 - [x] **1.2 Каркас приложения.** Конфиг через `pydantic-settings`, асинхронная
       сессия БД, точка входа режима `bot+api` (aiogram + FastAPI на одном
       ASGI/uvicorn), `GET /health`. (TZ §3.1, §6.2)
-- [ ] **1.3 Создание проекта при добавлении бота.** Хендлер `my_chat_member` →
+- [x] **1.3 Создание проекта при добавлении бота.** Хендлер `my_chat_member` →
       создание `Project`/`ProjectSettings`/первого `User`+`ProjectMembership(admin)`.
       (TZ §3.3, шаг 2)
 - [ ] **1.4 `/setup_registration`.** Идемпотентный вызов внутри топика →

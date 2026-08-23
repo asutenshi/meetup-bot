@@ -19,7 +19,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = create_engine(settings)
         app.state.session_factory = create_session_factory(engine)
         app.state.bot = create_bot(settings)
-        app.state.dispatcher = create_dispatcher()
+        app.state.dispatcher = create_dispatcher(app.state.session_factory)
         try:
             yield
         finally:
