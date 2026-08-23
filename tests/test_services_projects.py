@@ -7,6 +7,7 @@ from meetup_bot.services.projects import (
     ensure_membership,
     get_or_create_project,
     get_or_create_user,
+    provision_project,
 )
 
 
@@ -69,3 +70,89 @@ async def test_ensure_membership_is_idempotent(session: AsyncSession) -> None:
 
     assert first.id == second.id
     assert second.role == MembershipRole.ADMIN
+
+
+async def test_provision_project_without_force_keeps_existing_thread_id(
+    session: AsyncSession,
+) -> None:
+    project = await provision_project(
+        session,
+        tg_chat_id=-100,
+        chat_name="Friends",
+        thread_id=42,
+        force_thread_id=True,
+        admin_tg_user_id=1,
+        admin_username="admin",
+        admin_first_name="Admin",
+        admin_last_name=None,
+    )
+    await session.commit()
+    assert project.default_thread_id == 42
+
+    project = await provision_project(
+        session,
+        tg_chat_id=-100,
+        chat_name="Friends",
+        thread_id=None,
+        force_thread_id=False,
+        admin_tg_user_id=1,
+        admin_username="admin",
+        admin_first_name="Admin",
+        admin_last_name=None,
+    )
+
+    assert project.default_thread_id == 42
+
+
+async def test_provision_project_with_force_overwrites_thread_id(session: AsyncSession) -> None:
+    project = await provision_project(
+        session,
+        tg_chat_id=-100,
+        chat_name="Friends",
+        thread_id=42,
+        force_thread_id=True,
+        admin_tg_user_id=1,
+        admin_username="admin",
+        admin_first_name="Admin",
+        admin_last_name=None,
+    )
+    await session.commit()
+    assert project.default_thread_id == 42
+
+    project = await provision_project(
+        session,
+        tg_chat_id=-100,
+        chat_name="Friends",
+        thread_id=None,
+        force_thread_id=True,
+        admin_tg_user_id=1,
+        admin_username="admin",
+        admin_first_name="Admin",
+        admin_last_name=None,
+    )
+
+    assert project.default_thread_id is None
+
+
+async def test_provision_project_creates_admin_membership(session: AsyncSession) -> None:
+    project = await provision_project(
+        session,
+        tg_chat_id=-100,
+        chat_name="Friends",
+        thread_id=None,
+        force_thread_id=False,
+        admin_tg_user_id=1,
+        admin_username="admin",
+        admin_first_name="Admin",
+        admin_last_name=None,
+    )
+    await session.commit()
+
+    user = await get_or_create_user(
+        session, tg_user_id=1, username="admin", first_name="Admin", last_name=None
+    )
+    membership = await ensure_membership(
+        session, project_id=project.id, user_id=user.id, role=MembershipRole.ADMIN
+    )
+
+    assert membership.role == MembershipRole.ADMIN
