@@ -12,7 +12,7 @@
 - [x] **1.1 Модели и миграции БД.** SQLAlchemy 2.0 async модели `Project`,
       `ProjectTopicSetting`, `ProjectSettings`, `User`, `ProjectMembership`;
       Alembic init + первая миграция. (TZ §2.1–2.5)
-- [ ] **1.2 Каркас приложения.** Конфиг через `pydantic-settings`, асинхронная
+- [x] **1.2 Каркас приложения.** Конфиг через `pydantic-settings`, асинхронная
       сессия БД, точка входа режима `bot+api` (aiogram + FastAPI на одном
       ASGI/uvicorn), `GET /health`. (TZ §3.1, §6.2)
 - [ ] **1.3 Создание проекта при добавлении бота.** Хендлер `my_chat_member` →
