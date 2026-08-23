@@ -97,8 +97,8 @@
       Docker, обязательные события из §6.2. (TZ §6.2)
 - [ ] **5.3 Бэкапы.** Ежедневный `pg_dump` по cron, хранение N копий локально +
       выгрузка во внешнее хранилище. (TZ §6.3)
-- [ ] **5.4 Прод-деплой.** Docker Compose (домашний Proxmox + Cloudflare
-      Tunnel), настройка TLS/ingress, финальная сверка health-check. (TZ §1.3
+- [ ] **5.4 Прод-деплой.** Docker Compose (домашний Proxmox + Tailscale
+      Funnel), настройка TLS/ingress, финальная сверка health-check. (TZ §1.3
       вариант А; §6.2)
 
 ## Backlog (пост-MVP, вне текущей разбивки)
