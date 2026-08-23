@@ -1,9 +1,10 @@
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meetup_bot.services.projects import provision_project
+from meetup_bot.services.registration_post import sync_registration_post
 
 _CONFIRMATION_WITH_TOPIC = (
     "Готово! Этот топик назначен топиком по умолчанию для сообщений бота."
@@ -18,11 +19,11 @@ def create_router() -> Router:
     router = Router(name="setup_registration")
 
     @router.message(Command("setup_registration"), F.chat.type.in_({"group", "supergroup"}))
-    async def on_setup_registration(message: Message, session: AsyncSession) -> None:
+    async def on_setup_registration(message: Message, session: AsyncSession, bot: Bot) -> None:
         if message.from_user is None:
             return
 
-        await provision_project(
+        project, created, thread_changed = await provision_project(
             session,
             tg_chat_id=message.chat.id,
             chat_name=message.chat.title or str(message.chat.id),
@@ -33,6 +34,8 @@ def create_router() -> Router:
             admin_first_name=message.from_user.first_name,
             admin_last_name=message.from_user.last_name,
         )
+        if created or thread_changed:
+            await sync_registration_post(bot, project)
         await session.commit()
 
         text = (

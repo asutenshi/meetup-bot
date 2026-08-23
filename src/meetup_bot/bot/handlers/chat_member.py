@@ -3,6 +3,7 @@ from aiogram.types import ChatMemberUpdated
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meetup_bot.services.projects import provision_project
+from meetup_bot.services.registration_post import sync_registration_post
 
 _LEFT_STATUSES = {"left", "kicked"}
 _JOINED_STATUSES = {"member", "administrator"}
@@ -22,7 +23,7 @@ def create_router() -> Router:
         if event.new_chat_member.status not in _JOINED_STATUSES:
             return
 
-        await provision_project(
+        project, created, thread_changed = await provision_project(
             session,
             tg_chat_id=event.chat.id,
             chat_name=event.chat.title or str(event.chat.id),
@@ -33,6 +34,8 @@ def create_router() -> Router:
             admin_first_name=event.from_user.first_name,
             admin_last_name=event.from_user.last_name,
         )
+        if created or thread_changed:
+            await sync_registration_post(bot, project)
         await session.commit()
 
     return router

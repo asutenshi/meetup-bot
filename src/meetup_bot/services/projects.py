@@ -64,7 +64,7 @@ async def provision_project(
     admin_username: str | None,
     admin_first_name: str,
     admin_last_name: str | None,
-) -> Project:
+) -> tuple[Project, bool, bool]:
     """Общий путь создания проекта и первого админа (TZ §3.3, шаг 2) — используется
     и при добавлении бота в группу (`my_chat_member`), и при `/setup_registration`.
 
@@ -73,10 +73,16 @@ async def provision_project(
     вызвана вне топика) — команду можно вызвать повторно в другом топике, чтобы
     поменять топик по умолчанию. `force_thread_id=False` (`my_chat_member`, где
     топика у апдейта нет в принципе) не должен затирать уже настроенный топик при
-    повторном добавлении бота в группу."""
-    project, _ = await get_or_create_project(session, tg_chat_id=tg_chat_id, name=chat_name)
+    повторном добавлении бота в группу.
+
+    Возвращает `(project, created, thread_changed)` — оба флага говорят вызывающей
+    стороне, нужно ли (пере)публиковать закреплённый пост регистрации (TZ §3.3,
+    шаг 3): при создании проекта или при смене топика по умолчанию."""
+    project, created = await get_or_create_project(session, tg_chat_id=tg_chat_id, name=chat_name)
+    previous_thread_id = project.default_thread_id
     if force_thread_id or thread_id is not None:
         project.default_thread_id = thread_id
+    thread_changed = project.default_thread_id != previous_thread_id
 
     user = await get_or_create_user(
         session,
@@ -88,7 +94,7 @@ async def provision_project(
     await ensure_membership(
         session, project_id=project.id, user_id=user.id, role=MembershipRole.ADMIN
     )
-    return project
+    return project, created, thread_changed
 
 
 async def ensure_membership(
