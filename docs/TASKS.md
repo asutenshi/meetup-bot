@@ -9,7 +9,7 @@
 
 ## Этап 1. Реестр участников и мультитенантный каркас
 
-- [ ] **1.1 Модели и миграции БД.** SQLAlchemy 2.0 async модели `Project`,
+- [x] **1.1 Модели и миграции БД.** SQLAlchemy 2.0 async модели `Project`,
       `ProjectTopicSetting`, `ProjectSettings`, `User`, `ProjectMembership`;
       Alembic init + первая миграция. (TZ §2.1–2.5)
 - [ ] **1.2 Каркас приложения.** Конфиг через `pydantic-settings`, асинхронная
