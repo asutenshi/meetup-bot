@@ -26,6 +26,16 @@ uv run ruff check .     # линтер
 uv run mypy src         # типы
 ```
 
+### Миграции БД
+
+`DATABASE_URL` (из `.env`, экспортировать в окружение перед вызовом `alembic`
+или использовать `docker compose exec app ...`).
+
+```bash
+uv run alembic upgrade head                        # применить миграции
+uv run alembic revision --autogenerate -m "message" # сгенерировать новую после изменения моделей
+```
+
 ## Запуск через Docker Compose
 
 ```bash
