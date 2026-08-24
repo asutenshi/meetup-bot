@@ -48,7 +48,7 @@ async def test_bot_added_to_group_creates_project_and_admin(
         assert project is not None
         assert project.name == "Test Group"
         assert project.pinned_message_id is not None
-        assert fake_bot_api.pinned == [project.pinned_message_id]
+        assert fake_bot_api.posts == [project.pinned_message_id]
 
         user = await session.scalar(select(User).where(User.tg_user_id == 555))
         assert user is not None
@@ -82,8 +82,8 @@ async def test_repeated_add_event_is_idempotent(
     assert len(projects) == 1
     assert len(memberships) == 1
     # Повторное добавление бота (тот же топик, ещё не заданный) не должно
-    # публиковать второй закреплённый пост поверх уже существующего.
-    assert len(fake_bot_api.pinned) == 1
+    # публиковать второй пост регистрации поверх уже существующего.
+    assert len(fake_bot_api.posts) == 1
 
 
 async def test_status_change_other_than_join_is_ignored(
@@ -100,4 +100,4 @@ async def test_status_change_other_than_join_is_ignored(
         project = await session.scalar(select(Project).where(Project.tg_chat_id == -100123))
 
     assert project is None
-    assert fake_bot_api.pinned == []
+    assert fake_bot_api.posts == []

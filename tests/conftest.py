@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 from aiogram import Bot
-from aiogram.methods import GetMe, PinChatMessage, SendMessage, TelegramMethod, UnpinChatMessage
+from aiogram.methods import GetMe, SendMessage, TelegramMethod
 from aiogram.types import Chat, Message
 from aiogram.types import User as TgUser
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -24,30 +24,27 @@ BOT_TOKEN = "123:test-token"
 class FakeBotApi:
     """Подменяет `Bot.__call__`, чтобы хендлеры не делали реальные запросы к
     Telegram Bot API в тестах. Понимает методы, которые реально используются
-    (`get_me`/`send_message`/`pin_chat_message`/`unpin_chat_message`) — для
-    прочих (например, `message.answer`) возвращаемое значение хендлерам не
-    нужно, поэтому просто `None`."""
+    (`get_me`/`send_message`) — для прочих (например, `message.answer`)
+    возвращаемое значение хендлерам не нужно, поэтому просто `None`."""
 
     def __init__(self) -> None:
         self._message_ids = itertools.count(1000)
-        self.pinned: list[int] = []
-        self.unpinned: list[int] = []
+        self.posts: list[int] = []
+        self.sent_texts: list[str] = []
 
     async def __call__(self, method: TelegramMethod, request_timeout: int | None = None):  # type: ignore[no-untyped-def]
         if isinstance(method, GetMe):
             return TgUser(id=123, is_bot=True, first_name="TestBot", username="test_bot")
         if isinstance(method, SendMessage):
+            self.sent_texts.append(method.text or "")
+            message_id = next(self._message_ids)
+            if method.reply_markup is not None:
+                self.posts.append(message_id)
             return Message(
-                message_id=next(self._message_ids),
+                message_id=message_id,
                 date=datetime.now(tz=UTC),
                 chat=Chat(id=method.chat_id, type="supergroup"),
             )
-        if isinstance(method, PinChatMessage):
-            self.pinned.append(method.message_id)
-            return True
-        if isinstance(method, UnpinChatMessage):
-            self.unpinned.append(method.message_id)
-            return True
         return None
 
 

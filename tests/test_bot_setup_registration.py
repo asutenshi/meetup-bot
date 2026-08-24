@@ -49,7 +49,9 @@ async def test_setup_registration_creates_project_and_admin(
         assert project is not None
         assert project.default_thread_id == 7
         assert project.pinned_message_id is not None
-        assert fake_bot_api.pinned == [project.pinned_message_id]
+        assert fake_bot_api.posts == [project.pinned_message_id]
+        # Бот не закрепляет пост сам — только напоминает об этом администратору.
+        assert any("Закрепите" in text for text in fake_bot_api.sent_texts)
 
         user = await session.scalar(select(User).where(User.tg_user_id == 555))
         assert user is not None
@@ -103,12 +105,10 @@ async def test_repeated_call_in_another_topic_updates_default_thread(
     assert len(projects) == 1
     assert projects[0].default_thread_id == 9
     assert len(memberships) == 1
-    # Пост перенесён в новый топик: старый закреплённый пост откреплён, новый
-    # опубликован и закреплён заново (TZ §3.3, шаг 3).
-    assert len(fake_bot_api.pinned) == 2
-    assert len(fake_bot_api.unpinned) == 1
-    assert fake_bot_api.unpinned[0] == fake_bot_api.pinned[0]
-    assert projects[0].pinned_message_id == fake_bot_api.pinned[1]
+    # Пост перенесён в новый топик: публикуется заново (TZ §3.3, шаг 3), старый
+    # пост бот не трогает — закрепление и открепление на ответственности админа.
+    assert len(fake_bot_api.posts) == 2
+    assert projects[0].pinned_message_id == fake_bot_api.posts[1]
 
 
 async def test_repeated_call_in_same_topic_does_not_republish(
@@ -129,6 +129,5 @@ async def test_repeated_call_in_same_topic_does_not_republish(
         project = await session.scalar(select(Project).where(Project.tg_chat_id == -100123))
 
     assert project is not None
-    assert len(fake_bot_api.pinned) == 1
-    assert fake_bot_api.unpinned == []
-    assert project.pinned_message_id == fake_bot_api.pinned[0]
+    assert len(fake_bot_api.posts) == 1
+    assert project.pinned_message_id == fake_bot_api.posts[0]
