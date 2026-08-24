@@ -7,6 +7,7 @@ from meetup_bot.services.projects import (
     ensure_membership,
     get_or_create_project,
     get_or_create_user,
+    is_project_admin,
     provision_project,
 )
 
@@ -164,3 +165,36 @@ async def test_provision_project_creates_admin_membership(session: AsyncSession)
     )
 
     assert membership.role == MembershipRole.ADMIN
+
+
+async def test_is_project_admin_true_for_active_admin(session: AsyncSession) -> None:
+    project, _ = await get_or_create_project(session, tg_chat_id=-100, name="Friends")
+    user = await get_or_create_user(
+        session, tg_user_id=1, username="admin", first_name="Admin", last_name=None
+    )
+    await ensure_membership(
+        session, project_id=project.id, user_id=user.id, role=MembershipRole.ADMIN
+    )
+    await session.commit()
+
+    assert await is_project_admin(session, project_id=project.id, tg_user_id=1) is True
+
+
+async def test_is_project_admin_false_for_member(session: AsyncSession) -> None:
+    project, _ = await get_or_create_project(session, tg_chat_id=-100, name="Friends")
+    user = await get_or_create_user(
+        session, tg_user_id=2, username="member", first_name="Member", last_name=None
+    )
+    await ensure_membership(
+        session, project_id=project.id, user_id=user.id, role=MembershipRole.MEMBER
+    )
+    await session.commit()
+
+    assert await is_project_admin(session, project_id=project.id, tg_user_id=2) is False
+
+
+async def test_is_project_admin_false_for_unknown_user(session: AsyncSession) -> None:
+    project, _ = await get_or_create_project(session, tg_chat_id=-100, name="Friends")
+    await session.commit()
+
+    assert await is_project_admin(session, project_id=project.id, tg_user_id=999) is False

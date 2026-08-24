@@ -3,7 +3,7 @@ import secrets
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from meetup_bot.db.enums import MembershipRole
+from meetup_bot.db.enums import MembershipRole, MembershipStatus
 from meetup_bot.db.models import Project, ProjectMembership, ProjectSettings, User
 
 
@@ -116,4 +116,23 @@ async def ensure_membership(
     membership = ProjectMembership(project_id=project_id, user_id=user_id, role=role)
     session.add(membership)
     await session.flush()
-    return membership, True
+    return membership
+
+
+async def is_project_admin(
+    session: AsyncSession, *, project_id: int, tg_user_id: int
+) -> bool:
+    """Проверяет, что `tg_user_id` — активный админ проекта (TZ §6.1 "права ролей").
+    Используется там, где действие (например, `/setup_registration`) должно быть
+    доступно только администратору, а не любому участнику чата."""
+    membership = await session.scalar(
+        select(ProjectMembership)
+        .join(User, User.id == ProjectMembership.user_id)
+        .where(
+            ProjectMembership.project_id == project_id,
+            User.tg_user_id == tg_user_id,
+            ProjectMembership.role == MembershipRole.ADMIN,
+            ProjectMembership.status == MembershipStatus.ACTIVE,
+        )
+    )
+    return membership is not None

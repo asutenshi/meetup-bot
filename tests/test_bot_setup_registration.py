@@ -14,6 +14,8 @@ def _setup_registration_update(
     chat_id: int = -100123,
     user_id: int = 555,
     message_thread_id: int | None = None,
+    username: str = "admin_user",
+    first_name: str = "Admin",
 ) -> dict:
     message: dict = {
         "message_id": update_id,
@@ -22,8 +24,8 @@ def _setup_registration_update(
         "from": {
             "id": user_id,
             "is_bot": False,
-            "first_name": "Admin",
-            "username": "admin_user",
+            "first_name": first_name,
+            "username": username,
         },
         "text": "/setup_registration",
         "entities": [{"type": "bot_command", "offset": 0, "length": 20}],
@@ -131,3 +133,43 @@ async def test_repeated_call_in_same_topic_does_not_republish(
     assert project is not None
     assert len(fake_bot_api.posts) == 1
     assert project.pinned_message_id == fake_bot_api.posts[0]
+
+
+async def test_call_by_non_admin_is_rejected(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    dispatcher = create_dispatcher(session_factory)
+
+    # Первый вызов от админа создаёт проект и публикует пост.
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(
+            _setup_registration_update(1, message_thread_id=7, user_id=555, username="admin_user")
+        ),
+    )
+    # Второй вызов от постороннего участника того же чата — не должен ни
+    # переиздать пост, ни поменять топик, ни создать этому участнику членство.
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(
+            _setup_registration_update(
+                2, message_thread_id=9, user_id=999, username="random_member"
+            )
+        ),
+    )
+
+    async with session_factory() as session:
+        project = await session.scalar(select(Project).where(Project.tg_chat_id == -100123))
+        assert project is not None
+        assert project.default_thread_id == 7
+
+        intruder = await session.scalar(select(User).where(User.tg_user_id == 999))
+        assert intruder is None
+
+        memberships = (await session.scalars(select(ProjectMembership))).all()
+
+    assert len(memberships) == 1
+    assert len(fake_bot_api.posts) == 1
+    assert any("только администратор" in text for text in fake_bot_api.sent_texts)
