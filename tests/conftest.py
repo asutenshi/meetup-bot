@@ -31,12 +31,14 @@ class FakeBotApi:
         self._message_ids = itertools.count(1000)
         self.posts: list[int] = []
         self.sent_texts: list[str] = []
+        self.sent_thread_ids: list[int | None] = []
 
     async def __call__(self, method: TelegramMethod, request_timeout: int | None = None):  # type: ignore[no-untyped-def]
         if isinstance(method, GetMe):
             return TgUser(id=123, is_bot=True, first_name="TestBot", username="test_bot")
         if isinstance(method, SendMessage):
             self.sent_texts.append(method.text or "")
+            self.sent_thread_ids.append(method.message_thread_id)
             message_id = next(self._message_ids)
             if method.reply_markup is not None:
                 self.posts.append(message_id)
