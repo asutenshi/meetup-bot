@@ -74,6 +74,9 @@ class ProjectSettings(Base):
     missed_events_escalation_count: Mapped[int] = mapped_column(
         Integer, default=3, server_default="3"
     )
+    all_command_throttle_seconds: Mapped[int] = mapped_column(
+        Integer, default=180, server_default="180"
+    )
     timezone: Mapped[str] = mapped_column(
         String, default="Europe/Moscow", server_default="Europe/Moscow"
     )

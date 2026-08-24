@@ -3,14 +3,14 @@ from collections.abc import Awaitable, Callable
 from html import escape
 from typing import Any
 
-from aiogram import BaseMiddleware, Bot, F, Router
+from aiogram import BaseMiddleware, F, Router
 from aiogram.filters import Command
 from aiogram.types import Message, TelegramObject
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meetup_bot.db.enums import MembershipStatus
-from meetup_bot.db.models import Project, ProjectMembership, User
+from meetup_bot.db.models import Project, ProjectMembership, ProjectSettings, User
 
 _NOT_SET_UP_TEXT = (
     "Бот ещё не настроен в этом чате. Администратор должен вызвать "
@@ -18,7 +18,6 @@ _NOT_SET_UP_TEXT = (
 )
 _NO_MEMBERS_TEXT = "В проекте пока нет зарегистрированных участников."
 _THROTTLED_TEXT = "Команда /all уже вызывалась недавно, попробуйте через пару минут."
-_THROTTLE_SECONDS = 180.0
 _MAX_MESSAGE_LENGTH = 4096
 
 
@@ -50,10 +49,10 @@ def _split_into_messages(mentions: list[str]) -> list[str]:
 
 
 class AllThrottleMiddleware(BaseMiddleware):
-    """Троттлинг `/all` — не чаще раза в `_THROTTLE_SECONDS` на чат (TZ §6.1
-    "Rate limiting"). Store — атрибут инстанса, а не module-level dict, чтобы
-    каждый `create_dispatcher()` (в т.ч. в тестах) получал независимое
-    состояние, не разделяемое между инстансами приложения."""
+    """Троттлинг `/all` — не чаще раза в `ProjectSettings.all_command_throttle_seconds`
+    на проект (TZ §6.1 "Rate limiting"). Store — атрибут инстанса, а не
+    module-level dict, чтобы каждый `create_dispatcher()` (в т.ч. в тестах)
+    получал независимое состояние, не разделяемое между инстансами приложения."""
 
     def __init__(self) -> None:
         self._last_call_at: dict[int, float] = {}
@@ -75,7 +74,6 @@ def create_router() -> Router:
     async def on_all(
         message: Message,
         session: AsyncSession,
-        bot: Bot,
         all_throttle_store: dict[int, float],
     ) -> None:
         project = await session.scalar(
@@ -85,9 +83,12 @@ def create_router() -> Router:
             await message.answer(_NOT_SET_UP_TEXT)
             return
 
+        settings = await session.get(ProjectSettings, project.id)
+        throttle_seconds = settings.all_command_throttle_seconds if settings else 0
+
         now = time.monotonic()
         last_call_at = all_throttle_store.get(project.id)
-        if last_call_at is not None and now - last_call_at < _THROTTLE_SECONDS:
+        if last_call_at is not None and now - last_call_at < throttle_seconds:
             await message.answer(_THROTTLED_TEXT)
             return
 
@@ -105,18 +106,9 @@ def create_router() -> Router:
             return
 
         all_throttle_store[project.id] = now
-        # Топик определяется как для категории `general` (TZ §3.5) — до 1.9
-        # (`resolve_thread_id`/`/set_topic`) это всегда `default_thread_id`,
-        # так как строк `ProjectTopicSetting` ещё неоткуда взяться. Топик
-        # исходного вызова команды осознанно игнорируется — рассылка идёт по
-        # категорийной схеме, а не в топик, откуда позвали `/all`. `answer()`
-        # не позволяет переопределить `message_thread_id`, поэтому шлём через
-        # `bot.send_message` напрямую.
+        # Отвечаем туда же, откуда позвали команду (`message.answer()` сама
+        # подставляет `message_thread_id` входящего апдейта, если это топик).
         for chunk in _split_into_messages(mentions):
-            await bot.send_message(
-                chat_id=message.chat.id,
-                message_thread_id=project.default_thread_id,
-                text=chunk,
-            )
+            await message.answer(chunk)
 
     return router
