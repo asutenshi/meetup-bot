@@ -99,10 +99,11 @@ async def provision_project(
 
 async def ensure_membership(
     session: AsyncSession, *, project_id: int, user_id: int, role: MembershipRole
-) -> ProjectMembership:
+) -> tuple[ProjectMembership, bool]:
     """Идемпотентно создаёт `ProjectMembership`, если для пары (project, user) её ещё
     нет. Существующее членство не переопределяет роль/статус — только явные
-    админ-команды."""
+    админ-команды. Возвращает `(membership, created)` — вызывающая сторона по
+    этому флагу отличает первую регистрацию от повторной."""
     membership = await session.scalar(
         select(ProjectMembership).where(
             ProjectMembership.project_id == project_id,
@@ -110,7 +111,7 @@ async def ensure_membership(
         )
     )
     if membership is not None:
-        return membership
+        return membership, False
 
     membership = ProjectMembership(project_id=project_id, user_id=user_id, role=role)
     session.add(membership)

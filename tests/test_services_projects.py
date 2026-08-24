@@ -61,16 +61,18 @@ async def test_ensure_membership_is_idempotent(session: AsyncSession) -> None:
     )
     await session.commit()
 
-    first = await ensure_membership(
+    first, first_created = await ensure_membership(
         session, project_id=project.id, user_id=user.id, role=MembershipRole.ADMIN
     )
     await session.commit()
-    second = await ensure_membership(
+    second, second_created = await ensure_membership(
         session, project_id=project.id, user_id=user.id, role=MembershipRole.ADMIN
     )
 
     assert first.id == second.id
     assert second.role == MembershipRole.ADMIN
+    assert first_created is True
+    assert second_created is False
 
 
 async def test_provision_project_without_force_keeps_existing_thread_id(
@@ -158,7 +160,7 @@ async def test_provision_project_creates_admin_membership(session: AsyncSession)
     user = await get_or_create_user(
         session, tg_user_id=1, username="admin", first_name="Admin", last_name=None
     )
-    membership = await ensure_membership(
+    membership, _created = await ensure_membership(
         session, project_id=project.id, user_id=user.id, role=MembershipRole.ADMIN
     )
 
