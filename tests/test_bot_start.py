@@ -97,6 +97,10 @@ async def test_repeated_start_with_same_payload_is_idempotent(
         memberships = (await session.scalars(select(ProjectMembership))).all()
 
     assert len(memberships) == 1
+    # Первый раз — полное приветствие, второй — короткое "уже зарегистрированы",
+    # а не повторное приветствие как будто это первая регистрация.
+    assert "Вы зарегистрированы" in fake_bot_api.sent_texts[0]
+    assert "уже зарегистрированы" in fake_bot_api.sent_texts[1]
 
 
 async def test_start_without_payload_shows_hint(

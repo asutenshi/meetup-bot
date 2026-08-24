@@ -20,6 +20,7 @@ _WELCOME_TEXT = (
     "Вы зарегистрированы в проекте «{project_name}»! Теперь вам будут "
     "приходить сюда личные напоминания от бота."
 )
+_ALREADY_REGISTERED_TEXT = "Вы уже зарегистрированы в проекте «{project_name}»."
 
 
 def create_router() -> Router:
@@ -51,11 +52,12 @@ def create_router() -> Router:
             first_name=message.from_user.first_name,
             last_name=message.from_user.last_name,
         )
-        await ensure_membership(
+        _membership, created = await ensure_membership(
             session, project_id=project.id, user_id=user.id, role=MembershipRole.MEMBER
         )
         await session.commit()
 
-        await message.answer(_WELCOME_TEXT.format(project_name=project.name))
+        text = _WELCOME_TEXT if created else _ALREADY_REGISTERED_TEXT
+        await message.answer(text.format(project_name=project.name))
 
     return router
