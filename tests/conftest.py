@@ -1,6 +1,12 @@
+import itertools
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 
 import pytest
+from aiogram import Bot
+from aiogram.methods import GetMe, SendMessage, TelegramMethod
+from aiogram.types import Chat, Message
+from aiogram.types import User as TgUser
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from meetup_bot.db.base import Base
@@ -11,6 +17,47 @@ from meetup_bot.db.models import (  # noqa: F401
     ProjectTopicSetting,
     User,
 )
+
+BOT_TOKEN = "123:test-token"
+
+
+class FakeBotApi:
+    """Подменяет `Bot.__call__`, чтобы хендлеры не делали реальные запросы к
+    Telegram Bot API в тестах. Понимает методы, которые реально используются
+    (`get_me`/`send_message`) — для прочих (например, `message.answer`)
+    возвращаемое значение хендлерам не нужно, поэтому просто `None`."""
+
+    def __init__(self) -> None:
+        self._message_ids = itertools.count(1000)
+        self.posts: list[int] = []
+        self.sent_texts: list[str] = []
+
+    async def __call__(self, method: TelegramMethod, request_timeout: int | None = None):  # type: ignore[no-untyped-def]
+        if isinstance(method, GetMe):
+            return TgUser(id=123, is_bot=True, first_name="TestBot", username="test_bot")
+        if isinstance(method, SendMessage):
+            self.sent_texts.append(method.text or "")
+            message_id = next(self._message_ids)
+            if method.reply_markup is not None:
+                self.posts.append(message_id)
+            return Message(
+                message_id=message_id,
+                date=datetime.now(tz=UTC),
+                chat=Chat(id=method.chat_id, type="supergroup"),
+            )
+        return None
+
+
+@pytest.fixture
+def fake_bot_api(monkeypatch: pytest.MonkeyPatch) -> FakeBotApi:
+    api = FakeBotApi()
+    monkeypatch.setattr(Bot, "__call__", api)
+    return api
+
+
+@pytest.fixture
+def bot(fake_bot_api: FakeBotApi) -> Bot:
+    return Bot(token=BOT_TOKEN)
 
 
 @pytest.fixture

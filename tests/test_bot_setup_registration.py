@@ -1,6 +1,3 @@
-from unittest.mock import AsyncMock
-
-import pytest
 from aiogram import Bot
 from aiogram.types import Update
 from sqlalchemy import select
@@ -9,16 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from meetup_bot.bot import create_dispatcher
 from meetup_bot.db.enums import MembershipRole
 from meetup_bot.db.models import Project, ProjectMembership, User
-
-BOT_TOKEN = "123:test-token"
-
-
-@pytest.fixture
-def bot(monkeypatch: pytest.MonkeyPatch) -> Bot:
-    """Бот с заглушенным вызовом Telegram Bot API — хендлер отвечает сообщением
-    в чат, но тест не должен делать реальные сетевые запросы."""
-    monkeypatch.setattr(Bot, "__call__", AsyncMock(return_value=None))
-    return Bot(token=BOT_TOKEN)
+from tests.conftest import FakeBotApi
 
 
 def _setup_registration_update(
@@ -48,6 +36,7 @@ def _setup_registration_update(
 
 async def test_setup_registration_creates_project_and_admin(
     bot: Bot,
+    fake_bot_api: FakeBotApi,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     dispatcher = create_dispatcher(session_factory)
@@ -59,6 +48,10 @@ async def test_setup_registration_creates_project_and_admin(
         project = await session.scalar(select(Project).where(Project.tg_chat_id == -100123))
         assert project is not None
         assert project.default_thread_id == 7
+        assert project.pinned_message_id is not None
+        assert fake_bot_api.posts == [project.pinned_message_id]
+        # Бот не закрепляет пост сам — только напоминает об этом администратору.
+        assert any("Закрепите" in text for text in fake_bot_api.sent_texts)
 
         user = await session.scalar(select(User).where(User.tg_user_id == 555))
         assert user is not None
@@ -91,6 +84,7 @@ async def test_setup_registration_without_topic_leaves_default_thread_null(
 
 async def test_repeated_call_in_another_topic_updates_default_thread(
     bot: Bot,
+    fake_bot_api: FakeBotApi,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     dispatcher = create_dispatcher(session_factory)
@@ -111,3 +105,29 @@ async def test_repeated_call_in_another_topic_updates_default_thread(
     assert len(projects) == 1
     assert projects[0].default_thread_id == 9
     assert len(memberships) == 1
+    # Пост перенесён в новый топик: публикуется заново (TZ §3.3, шаг 3), старый
+    # пост бот не трогает — закрепление и открепление на ответственности админа.
+    assert len(fake_bot_api.posts) == 2
+    assert projects[0].pinned_message_id == fake_bot_api.posts[1]
+
+
+async def test_repeated_call_in_same_topic_does_not_republish(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    dispatcher = create_dispatcher(session_factory)
+
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_setup_registration_update(1, message_thread_id=7))
+    )
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_setup_registration_update(2, message_thread_id=7))
+    )
+
+    async with session_factory() as session:
+        project = await session.scalar(select(Project).where(Project.tg_chat_id == -100123))
+
+    assert project is not None
+    assert len(fake_bot_api.posts) == 1
+    assert project.pinned_message_id == fake_bot_api.posts[0]

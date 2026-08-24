@@ -75,7 +75,7 @@ async def test_ensure_membership_is_idempotent(session: AsyncSession) -> None:
 async def test_provision_project_without_force_keeps_existing_thread_id(
     session: AsyncSession,
 ) -> None:
-    project = await provision_project(
+    project, created, thread_changed = await provision_project(
         session,
         tg_chat_id=-100,
         chat_name="Friends",
@@ -88,8 +88,10 @@ async def test_provision_project_without_force_keeps_existing_thread_id(
     )
     await session.commit()
     assert project.default_thread_id == 42
+    assert created is True
+    assert thread_changed is True
 
-    project = await provision_project(
+    project, created, thread_changed = await provision_project(
         session,
         tg_chat_id=-100,
         chat_name="Friends",
@@ -102,10 +104,12 @@ async def test_provision_project_without_force_keeps_existing_thread_id(
     )
 
     assert project.default_thread_id == 42
+    assert created is False
+    assert thread_changed is False
 
 
 async def test_provision_project_with_force_overwrites_thread_id(session: AsyncSession) -> None:
-    project = await provision_project(
+    project, _, _ = await provision_project(
         session,
         tg_chat_id=-100,
         chat_name="Friends",
@@ -119,7 +123,7 @@ async def test_provision_project_with_force_overwrites_thread_id(session: AsyncS
     await session.commit()
     assert project.default_thread_id == 42
 
-    project = await provision_project(
+    project, created, thread_changed = await provision_project(
         session,
         tg_chat_id=-100,
         chat_name="Friends",
@@ -132,10 +136,12 @@ async def test_provision_project_with_force_overwrites_thread_id(session: AsyncS
     )
 
     assert project.default_thread_id is None
+    assert created is False
+    assert thread_changed is True
 
 
 async def test_provision_project_creates_admin_membership(session: AsyncSession) -> None:
-    project = await provision_project(
+    project, _, _ = await provision_project(
         session,
         tg_chat_id=-100,
         chat_name="Friends",
