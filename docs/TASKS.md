@@ -36,7 +36,7 @@
 - [ ] **1.8 Админ-команды реестра.** `/members`, удаление участника
       (`status=removed`, `removed_by`/`removed_at`), `/add_admin` — с проверкой
       `role=admin` на бэкенде. (TZ §4.1; §6.1 права ролей)
-- [ ] **1.9 `/set_topic`.** Привязка топика к категории (`events` /
+- [x] **1.9 `/set_topic`.** Привязка топика к категории (`events` /
       `money_collections` / `general`) через upsert `ProjectTopicSetting`,
       функция `resolve_thread_id(project_id, category)` для дальнейшего
       переиспользования. (TZ §3.5)

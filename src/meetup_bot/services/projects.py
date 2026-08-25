@@ -3,8 +3,14 @@ import secrets
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from meetup_bot.db.enums import MembershipRole, MembershipStatus
-from meetup_bot.db.models import Project, ProjectMembership, ProjectSettings, User
+from meetup_bot.db.enums import MembershipRole, MembershipStatus, TopicCategory
+from meetup_bot.db.models import (
+    Project,
+    ProjectMembership,
+    ProjectSettings,
+    ProjectTopicSetting,
+    User,
+)
 
 
 async def get_or_create_project(
@@ -136,3 +142,45 @@ async def is_project_admin(
         )
     )
     return membership is not None
+
+
+async def set_project_topic(
+    session: AsyncSession, *, project_id: int, category: TopicCategory, thread_id: int
+) -> ProjectTopicSetting:
+    """Upsert `ProjectTopicSetting(project_id, category, thread_id)` — `/set_topic`
+    (TZ §3.5 "Настройка топика админом")."""
+    setting = await session.scalar(
+        select(ProjectTopicSetting).where(
+            ProjectTopicSetting.project_id == project_id,
+            ProjectTopicSetting.category == category,
+        )
+    )
+    if setting is None:
+        setting = ProjectTopicSetting(
+            project_id=project_id, category=category, thread_id=thread_id
+        )
+        session.add(setting)
+    else:
+        setting.thread_id = thread_id
+    await session.flush()
+    return setting
+
+
+async def resolve_thread_id(
+    session: AsyncSession, *, project_id: int, category: TopicCategory
+) -> int | None:
+    """Резолвит `thread_id` для проактивного группового сообщения категории
+    `category` (TZ §3.5 "Разрешение топика при отправке"): специфичная настройка
+    `ProjectTopicSetting` → `Project.default_thread_id` → `None` (сообщение уйдёт
+    в топик чата по умолчанию, без `message_thread_id`)."""
+    setting = await session.scalar(
+        select(ProjectTopicSetting).where(
+            ProjectTopicSetting.project_id == project_id,
+            ProjectTopicSetting.category == category,
+        )
+    )
+    if setting is not None:
+        return setting.thread_id
+
+    project = await session.get(Project, project_id)
+    return project.default_thread_id if project is not None else None
