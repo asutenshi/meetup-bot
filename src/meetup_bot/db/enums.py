@@ -8,6 +8,7 @@ class TopicCategory(enum.Enum):
 
 
 class MembershipRole(enum.Enum):
+    OWNER = "owner"
     ADMIN = "admin"
     MEMBER = "member"
 

@@ -65,7 +65,7 @@ async def test_setup_registration_creates_project_and_admin(
             )
         )
         assert membership is not None
-        assert membership.role == MembershipRole.ADMIN
+        assert membership.role == MembershipRole.OWNER
 
 
 async def test_setup_registration_without_topic_leaves_default_thread_null(
