@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from meetup_bot.bot import create_dispatcher
+from meetup_bot.bot.handlers import set_topic
 from meetup_bot.db.enums import MembershipRole, TopicCategory
 from meetup_bot.db.models import Project, ProjectMembership, ProjectTopicSetting, User
 from tests.conftest import FakeBotApi
@@ -130,6 +131,31 @@ async def test_repeated_call_updates_existing_setting(
     assert settings[0].thread_id == 9
 
 
+async def test_repeated_call_in_same_topic_notifies_already_assigned(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _create_project_with_admin(session_factory)
+    dispatcher = create_dispatcher(session_factory)
+
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(
+            _set_topic_update(1, args="events", message_thread_id=7)
+        ),
+    )
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(
+            _set_topic_update(2, args="events", message_thread_id=7)
+        ),
+    )
+
+    assert fake_bot_api.sent_texts[0].startswith("Готово!")
+    assert "уже назначен" in fake_bot_api.sent_texts[1]
+
+
 async def test_set_topic_by_non_admin_is_rejected(
     bot: Bot,
     fake_bot_api: FakeBotApi,
@@ -223,3 +249,19 @@ async def test_set_topic_with_invalid_category_lists_valid_ones(
     assert any(
         "events, money_collections, general" in text for text in fake_bot_api.sent_texts
     )
+
+
+def test_texts_are_safe_for_default_html_parse_mode() -> None:
+    # Бот создаётся с parse_mode=HTML по умолчанию (`bot/__init__.py`) — `<...>`
+    # в тексте (например, плейсхолдер `<category>`) Telegram пытается
+    # распарсить как тег и роняет `sendMessage` с `TelegramBadRequest`.
+    texts = [
+        set_topic._NOT_SET_UP_TEXT,
+        set_topic._NOT_ADMIN_TEXT,
+        set_topic._NOT_FORUM_TEXT,
+        set_topic._OUTSIDE_TOPIC_TEXT,
+        set_topic._INVALID_CATEGORY_TEXT,
+        *set_topic._CONFIRMATION_TEXT.values(),
+        *set_topic._ALREADY_ASSIGNED_TEXT.values(),
+    ]
+    assert all("<" not in text for text in texts)

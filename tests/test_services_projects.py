@@ -206,17 +206,35 @@ async def test_set_project_topic_creates_then_updates(session: AsyncSession) -> 
     project, _ = await get_or_create_project(session, tg_chat_id=-100, name="Friends")
     await session.commit()
 
-    first = await set_project_topic(
+    first, first_changed = await set_project_topic(
         session, project_id=project.id, category=TopicCategory.EVENTS, thread_id=7
     )
     await session.commit()
-    second = await set_project_topic(
+    second, second_changed = await set_project_topic(
         session, project_id=project.id, category=TopicCategory.EVENTS, thread_id=9
     )
     await session.commit()
 
     assert first.id == second.id
     assert second.thread_id == 9
+    assert first_changed is True
+    assert second_changed is True
+
+
+async def test_set_project_topic_same_thread_id_is_noop(session: AsyncSession) -> None:
+    project, _ = await get_or_create_project(session, tg_chat_id=-100, name="Friends")
+    await session.commit()
+
+    _first, first_changed = await set_project_topic(
+        session, project_id=project.id, category=TopicCategory.EVENTS, thread_id=7
+    )
+    await session.commit()
+    _second, second_changed = await set_project_topic(
+        session, project_id=project.id, category=TopicCategory.EVENTS, thread_id=7
+    )
+
+    assert first_changed is True
+    assert second_changed is False
 
 
 async def test_resolve_thread_id_prefers_category_setting(session: AsyncSession) -> None:

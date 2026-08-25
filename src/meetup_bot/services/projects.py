@@ -146,9 +146,11 @@ async def is_project_admin(
 
 async def set_project_topic(
     session: AsyncSession, *, project_id: int, category: TopicCategory, thread_id: int
-) -> ProjectTopicSetting:
+) -> tuple[ProjectTopicSetting, bool]:
     """Upsert `ProjectTopicSetting(project_id, category, thread_id)` — `/set_topic`
-    (TZ §3.5 "Настройка топика админом")."""
+    (TZ §3.5 "Настройка топика админом"). Возвращает `(setting, changed)` —
+    `changed=False`, если этот топик уже был назначен этой категории (повторный
+    вызов `/set_topic` в том же топике — идемпотентный no-op)."""
     setting = await session.scalar(
         select(ProjectTopicSetting).where(
             ProjectTopicSetting.project_id == project_id,
@@ -160,10 +162,15 @@ async def set_project_topic(
             project_id=project_id, category=category, thread_id=thread_id
         )
         session.add(setting)
-    else:
-        setting.thread_id = thread_id
+        await session.flush()
+        return setting, True
+
+    if setting.thread_id == thread_id:
+        return setting, False
+
+    setting.thread_id = thread_id
     await session.flush()
-    return setting
+    return setting, True
 
 
 async def resolve_thread_id(

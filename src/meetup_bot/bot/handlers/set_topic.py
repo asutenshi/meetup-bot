@@ -19,9 +19,8 @@ _OUTSIDE_TOPIC_TEXT = (
     "выбранной категории."
 )
 _INVALID_CATEGORY_TEXT = (
-    "Укажите категорию: /set_topic <category>, где category — одно из: "
-    + ", ".join(category.value for category in TopicCategory)
-    + "."
+    "Укажите категорию после команды, например: /set_topic events. Доступные "
+    "категории: " + ", ".join(category.value for category in TopicCategory) + "."
 )
 _CONFIRMATION_TEXT = {
     TopicCategory.EVENTS: "Готово! Мероприятия теперь будут анонсироваться в этом топике.",
@@ -29,6 +28,11 @@ _CONFIRMATION_TEXT = {
         "Готово! Уведомления о сборах теперь будут приходить в этот топик."
     ),
     TopicCategory.GENERAL: "Готово! Остальные сообщения бота теперь будут приходить в этот топик.",
+}
+_ALREADY_ASSIGNED_TEXT = {
+    TopicCategory.EVENTS: "Этот топик уже назначен для анонсов мероприятий.",
+    TopicCategory.MONEY_COLLECTIONS: "Этот топик уже назначен для уведомлений о сборах.",
+    TopicCategory.GENERAL: "Этот топик уже назначен для остальных сообщений бота.",
 }
 
 
@@ -70,14 +74,17 @@ def create_router() -> Router:
             await message.answer(_OUTSIDE_TOPIC_TEXT)
             return
 
-        await set_project_topic(
+        _setting, changed = await set_project_topic(
             session,
             project_id=project.id,
             category=category,
             thread_id=message.message_thread_id,
         )
-        await session.commit()
+        if not changed:
+            await message.answer(_ALREADY_ASSIGNED_TEXT[category])
+            return
 
+        await session.commit()
         await message.answer(_CONFIRMATION_TEXT[category])
 
     return router
