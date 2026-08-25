@@ -116,7 +116,7 @@ async def ensure_membership(
     membership = ProjectMembership(project_id=project_id, user_id=user_id, role=role)
     session.add(membership)
     await session.flush()
-    return membership
+    return membership, True
 
 
 async def is_project_admin(
