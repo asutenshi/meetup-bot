@@ -36,7 +36,7 @@
 - [x] **1.8 Админ-команды реестра.** `/members`, удаление участника
       (`status=removed`, `removed_by`/`removed_at`), `/add_admin` — с проверкой
       `role=admin` на бэкенде. (TZ §4.1; §6.1 права ролей)
-- [ ] **1.9 `/set_topic`.** Привязка топика к категории (`events` /
+- [x] **1.9 `/set_topic`.** Привязка топика к категории (`events` /
       `money_collections` / `general`) через upsert `ProjectTopicSetting`,
       функция `resolve_thread_id(project_id, category)` для дальнейшего
       переиспользования. (TZ §3.5)
@@ -120,3 +120,10 @@
 браться за пост-MVP. Список фич и как они ложатся на архитектуру — в
 [`TZ.md`, раздел 5](./TZ.md#5-backlog-пост-mvp) и
 [`CONCEPT.md`, раздел 5](./CONCEPT.md#5-пост-mvp--следующий-релиз-backlog).
+
+Мелкие технические доработки, отмеченные по ходу работы (не product-фичи из
+`CONCEPT.md`):
+
+- **`/unset_topic <category>`.** Снятие привязки топика к категории (удаление
+  строки `ProjectTopicSetting`) — сейчас есть только `/set_topic` (см.
+  [`TZ.md`, раздел 3.5](./TZ.md#35-топики-группового-чата)).

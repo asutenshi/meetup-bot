@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from meetup_bot.db.enums import MembershipRole, MembershipStatus
+from meetup_bot.db.enums import MembershipRole, MembershipStatus, TopicCategory
 from meetup_bot.db.models import ProjectMembership, ProjectSettings
 from meetup_bot.services.projects import (
     ensure_membership,
@@ -11,6 +11,8 @@ from meetup_bot.services.projects import (
     is_project_owner,
     provision_project,
     remove_membership,
+    resolve_thread_id,
+    set_project_topic,
 )
 
 
@@ -208,6 +210,79 @@ async def test_is_project_admin_false_for_unknown_user(session: AsyncSession) ->
     await session.commit()
 
     assert await is_project_admin(session, project_id=project.id, tg_user_id=999) is False
+
+
+async def test_set_project_topic_creates_then_updates(session: AsyncSession) -> None:
+    project, _ = await get_or_create_project(session, tg_chat_id=-100, name="Friends")
+    await session.commit()
+
+    first, first_changed = await set_project_topic(
+        session, project_id=project.id, category=TopicCategory.EVENTS, thread_id=7
+    )
+    await session.commit()
+    second, second_changed = await set_project_topic(
+        session, project_id=project.id, category=TopicCategory.EVENTS, thread_id=9
+    )
+    await session.commit()
+
+    assert first.id == second.id
+    assert second.thread_id == 9
+    assert first_changed is True
+    assert second_changed is True
+
+
+async def test_set_project_topic_same_thread_id_is_noop(session: AsyncSession) -> None:
+    project, _ = await get_or_create_project(session, tg_chat_id=-100, name="Friends")
+    await session.commit()
+
+    _first, first_changed = await set_project_topic(
+        session, project_id=project.id, category=TopicCategory.EVENTS, thread_id=7
+    )
+    await session.commit()
+    _second, second_changed = await set_project_topic(
+        session, project_id=project.id, category=TopicCategory.EVENTS, thread_id=7
+    )
+
+    assert first_changed is True
+    assert second_changed is False
+
+
+async def test_resolve_thread_id_prefers_category_setting(session: AsyncSession) -> None:
+    project, _ = await get_or_create_project(session, tg_chat_id=-100, name="Friends")
+    project.default_thread_id = 1
+    await set_project_topic(
+        session, project_id=project.id, category=TopicCategory.EVENTS, thread_id=7
+    )
+    await session.commit()
+
+    thread_id = await resolve_thread_id(
+        session, project_id=project.id, category=TopicCategory.EVENTS
+    )
+
+    assert thread_id == 7
+
+
+async def test_resolve_thread_id_falls_back_to_project_default(session: AsyncSession) -> None:
+    project, _ = await get_or_create_project(session, tg_chat_id=-100, name="Friends")
+    project.default_thread_id = 1
+    await session.commit()
+
+    thread_id = await resolve_thread_id(
+        session, project_id=project.id, category=TopicCategory.GENERAL
+    )
+
+    assert thread_id == 1
+
+
+async def test_resolve_thread_id_returns_none_without_any_topic(session: AsyncSession) -> None:
+    project, _ = await get_or_create_project(session, tg_chat_id=-100, name="Friends")
+    await session.commit()
+
+    thread_id = await resolve_thread_id(
+        session, project_id=project.id, category=TopicCategory.GENERAL
+    )
+
+    assert thread_id is None
 
 
 async def test_is_project_admin_true_for_owner(session: AsyncSession) -> None:
