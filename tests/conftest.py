@@ -4,7 +4,13 @@ from datetime import UTC, datetime
 
 import pytest
 from aiogram import Bot
-from aiogram.methods import GetMe, SendMessage, TelegramMethod
+from aiogram.methods import (
+    AnswerCallbackQuery,
+    EditMessageText,
+    GetMe,
+    SendMessage,
+    TelegramMethod,
+)
 from aiogram.types import Chat, Message
 from aiogram.types import User as TgUser
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -32,6 +38,9 @@ class FakeBotApi:
         self.posts: list[int] = []
         self.sent_texts: list[str] = []
         self.sent_thread_ids: list[int | None] = []
+        self.sent_messages: list[SendMessage] = []
+        self.edited_texts: list[str] = []
+        self.callback_answers: list[str] = []
 
     async def __call__(self, method: TelegramMethod, request_timeout: int | None = None):  # type: ignore[no-untyped-def]
         if isinstance(method, GetMe):
@@ -39,6 +48,7 @@ class FakeBotApi:
         if isinstance(method, SendMessage):
             self.sent_texts.append(method.text or "")
             self.sent_thread_ids.append(method.message_thread_id)
+            self.sent_messages.append(method)
             message_id = next(self._message_ids)
             if method.reply_markup is not None:
                 self.posts.append(message_id)
@@ -47,6 +57,16 @@ class FakeBotApi:
                 date=datetime.now(tz=UTC),
                 chat=Chat(id=method.chat_id, type="supergroup"),
             )
+        if isinstance(method, EditMessageText):
+            self.edited_texts.append(method.text or "")
+            return Message(
+                message_id=method.message_id or next(self._message_ids),
+                date=datetime.now(tz=UTC),
+                chat=Chat(id=method.chat_id, type="supergroup"),
+            )
+        if isinstance(method, AnswerCallbackQuery):
+            self.callback_answers.append(method.text or "")
+            return True
         return None
 
 

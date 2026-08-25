@@ -1,3 +1,4 @@
+import datetime
 import secrets
 
 from sqlalchemy import select
@@ -91,9 +92,14 @@ async def provision_project(
         first_name=admin_first_name,
         last_name=admin_last_name,
     )
-    await ensure_membership(
-        session, project_id=project.id, user_id=user.id, role=MembershipRole.ADMIN
-    )
+    # Роль назначается только при создании проекта — тот, кто добавил бота в
+    # чат/первым вызвал /setup_registration, становится главным админом
+    # (`owner`), которого нельзя удалить и который единственный может назначать
+    # со-админов (`/add_admin`). При повторных вызовах на уже существующем
+    # проекте роль не имеет значения — `ensure_membership` не переопределяет её
+    # для уже активного членства.
+    role = MembershipRole.OWNER if created else MembershipRole.ADMIN
+    await ensure_membership(session, project_id=project.id, user_id=user.id, role=role)
     return project, created, thread_changed
 
 
@@ -101,9 +107,15 @@ async def ensure_membership(
     session: AsyncSession, *, project_id: int, user_id: int, role: MembershipRole
 ) -> tuple[ProjectMembership, bool]:
     """Идемпотентно создаёт `ProjectMembership`, если для пары (project, user) её ещё
-    нет. Существующее членство не переопределяет роль/статус — только явные
-    админ-команды. Возвращает `(membership, created)` — вызывающая сторона по
-    этому флагу отличает первую регистрацию от повторной."""
+    нет. Существующее активное членство не переопределяет роль/статус — только
+    явные админ-команды. Существующее удалённое (`status=removed`) членство,
+    напротив, реактивируется: участник, вышедший/удалённый из проекта, должен
+    иметь возможность зарегистрироваться заново по инвайт-ссылке (TZ §4.1), а не
+    получать «вы уже зарегистрированы». Роль при этом всегда берётся из
+    аргумента `role`, а не сохраняется прежняя — вернувшийся участник не должен
+    автоматически получать обратно права, которых лишился при удалении.
+    Возвращает `(membership, created)` — вызывающая сторона по этому флагу
+    отличает первую/повторную регистрацию от уже активного членства."""
     membership = await session.scalar(
         select(ProjectMembership).where(
             ProjectMembership.project_id == project_id,
@@ -111,6 +123,12 @@ async def ensure_membership(
         )
     )
     if membership is not None:
+        if membership.status == MembershipStatus.REMOVED:
+            membership.status = MembershipStatus.ACTIVE
+            membership.role = role
+            membership.removed_at = None
+            membership.removed_by = None
+            return membership, True
         return membership, False
 
     membership = ProjectMembership(project_id=project_id, user_id=user_id, role=role)
@@ -119,20 +137,75 @@ async def ensure_membership(
     return membership, True
 
 
-async def is_project_admin(
-    session: AsyncSession, *, project_id: int, tg_user_id: int
-) -> bool:
-    """Проверяет, что `tg_user_id` — активный админ проекта (TZ §6.1 "права ролей").
-    Используется там, где действие (например, `/setup_registration`) должно быть
-    доступно только администратору, а не любому участнику чата."""
+async def is_project_admin(session: AsyncSession, *, project_id: int, tg_user_id: int) -> bool:
+    """Проверяет, что `tg_user_id` — активный админ проекта, `owner` или `admin`
+    (TZ §6.1 "права ролей"). Используется там, где действие (например,
+    `/setup_registration`, `/members`, `/remove_member`) должно быть доступно
+    любому администратору, а не только главному (см. [[is_project_owner]] для
+    действий, зарезервированных за главным админом)."""
     membership = await session.scalar(
         select(ProjectMembership)
         .join(User, User.id == ProjectMembership.user_id)
         .where(
             ProjectMembership.project_id == project_id,
             User.tg_user_id == tg_user_id,
-            ProjectMembership.role == MembershipRole.ADMIN,
+            ProjectMembership.role.in_([MembershipRole.OWNER, MembershipRole.ADMIN]),
             ProjectMembership.status == MembershipStatus.ACTIVE,
         )
     )
     return membership is not None
+
+
+async def is_project_owner(session: AsyncSession, *, project_id: int, tg_user_id: int) -> bool:
+    """Проверяет, что `tg_user_id` — активный главный админ (`owner`) проекта.
+    Со-админы (`admin`), назначенные через `/add_admin`, не проходят эту проверку —
+    ей гейтится `/add_admin` (только владелец назначает новых админов) и защита
+    владельца от удаления через `/remove_member`."""
+    membership = await session.scalar(
+        select(ProjectMembership)
+        .join(User, User.id == ProjectMembership.user_id)
+        .where(
+            ProjectMembership.project_id == project_id,
+            User.tg_user_id == tg_user_id,
+            ProjectMembership.role == MembershipRole.OWNER,
+            ProjectMembership.status == MembershipStatus.ACTIVE,
+        )
+    )
+    return membership is not None
+
+
+async def list_active_memberships(
+    session: AsyncSession, *, project_id: int, role: MembershipRole | None = None
+) -> list[tuple[ProjectMembership, User]]:
+    """Активные участники проекта вместе с их `User` (TZ §4.1 `/members`,
+    `/remove_member`, `/add_admin`). `role` фильтрует по роли — используется
+    `/add_admin`, которому нужны только ещё-не-админы."""
+    query = (
+        select(ProjectMembership, User)
+        .join(User, User.id == ProjectMembership.user_id)
+        .where(
+            ProjectMembership.project_id == project_id,
+            ProjectMembership.status == MembershipStatus.ACTIVE,
+        )
+        .order_by(User.first_name)
+    )
+    if role is not None:
+        query = query.where(ProjectMembership.role == role)
+    result = await session.execute(query)
+    return [(row.ProjectMembership, row.User) for row in result]
+
+
+async def remove_membership(
+    session: AsyncSession, *, membership: ProjectMembership, removed_by_tg_user_id: int
+) -> None:
+    """Удаляет участника из проекта (TZ §4.1 `/remove_member`): статус переводится
+    в `removed`, `removed_by`/`removed_at` заполняются — строка не удаляется физически."""
+    removed_by = await session.scalar(select(User).where(User.tg_user_id == removed_by_tg_user_id))
+    membership.status = MembershipStatus.REMOVED
+    membership.removed_at = datetime.datetime.now(datetime.UTC)
+    membership.removed_by = removed_by.id if removed_by else None
+
+
+def promote_to_admin(membership: ProjectMembership) -> None:
+    """Назначает участника со-админом проекта (TZ §4.1 `/add_admin`)."""
+    membership.role = MembershipRole.ADMIN
