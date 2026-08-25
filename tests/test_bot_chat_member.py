@@ -60,7 +60,7 @@ async def test_bot_added_to_group_creates_project_and_admin(
             )
         )
         assert membership is not None
-        assert membership.role == MembershipRole.ADMIN
+        assert membership.role == MembershipRole.OWNER
 
 
 async def test_repeated_add_event_is_idempotent(

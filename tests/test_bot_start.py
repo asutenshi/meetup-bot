@@ -103,6 +103,47 @@ async def test_repeated_start_with_same_payload_is_idempotent(
     assert "уже зарегистрированы" in fake_bot_api.sent_texts[1]
 
 
+async def test_start_after_removal_reregisters_instead_of_already_registered(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Регрессия: удалённый администратором участник, повторно перешедший по
+    инвайт-ссылке, должен снова зарегистрироваться, а не упереться в «вы уже
+    зарегистрированы» — до фикса `ensure_membership` не реактивировал
+    `status=removed` членство."""
+    project = await _create_project(session_factory)
+    dispatcher = create_dispatcher(session_factory)
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_start_update(1, payload=project.invite_payload))
+    )
+
+    async with session_factory() as session:
+        user = await session.scalar(select(User).where(User.tg_user_id == 777))
+        assert user is not None
+        membership = await session.scalar(
+            select(ProjectMembership).where(
+                ProjectMembership.project_id == project.id,
+                ProjectMembership.user_id == user.id,
+            )
+        )
+        assert membership is not None
+        membership.status = MembershipStatus.REMOVED
+        await session.commit()
+
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_start_update(2, payload=project.invite_payload))
+    )
+
+    async with session_factory() as session:
+        memberships = (await session.scalars(select(ProjectMembership))).all()
+        assert len(memberships) == 1
+        assert memberships[0].status == MembershipStatus.ACTIVE
+
+    assert "Вы зарегистрированы" in fake_bot_api.sent_texts[-1]
+    assert "уже зарегистрированы" not in fake_bot_api.sent_texts[-1]
+
+
 async def test_start_without_payload_shows_hint(
     bot: Bot,
     fake_bot_api: FakeBotApi,
