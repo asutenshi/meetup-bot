@@ -6,7 +6,7 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? '/api';
 
 /**
  * Заголовок с подписанной строкой initData (TZ §3.2). Бэкенд валидирует её на
- * каждый запрос — это задача 2.2. Вне Telegram initData нет, заголовок не
+ * каждый запрос — это задача 2.3. Вне Telegram initData нет, заголовок не
  * добавляется (такие запросы бэкенд отклонит).
  */
 function initDataHeader(): Record<string, string> {
