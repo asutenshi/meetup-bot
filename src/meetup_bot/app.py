@@ -32,6 +32,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await engine.dispose()
 
     app = FastAPI(lifespan=lifespan)
+    # Доступ к конфигу из зависимостей (валидация Web App initData, TZ §3.2).
+    app.state.settings = settings
     app.include_router(api_router)
     _mount_webapp(app, settings)
 

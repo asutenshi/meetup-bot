@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # если каталог существует; иначе бэкенд поднимается без Mini App
     # (dev, CI без node). См. app._mount_webapp.
     webapp_dist_dir: str = "webapp/dist"
+    # Максимальный возраст `auth_date` в Telegram Web App `initData`, секунды.
+    # Старше — запрос отклоняется как возможный replay (TZ §3.2). Сутки.
+    webapp_init_data_max_age: int = 86400
 
 
 @lru_cache
