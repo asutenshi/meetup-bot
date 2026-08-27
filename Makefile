@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help up down restart migrate logs logs-all ps psql \
+.PHONY: help up down restart migrate logs logs-worker logs-all ps psql \
 	webhook-set webhook-info webhook-delete health smoke \
 	check lint typecheck test \
 	webapp-install webapp-dev webapp-build webapp-check openapi
@@ -25,6 +25,9 @@ migrate: ## Применить миграции Alembic внутри конте�
 
 logs: ## Логи app в реальном времени (Ctrl+C для выхода)
 	docker compose logs -f app
+
+logs-worker: ## Логи worker-процесса напоминаний в реальном времени
+	docker compose logs -f worker
 
 logs-all: ## Логи всех сервисов в реальном времени
 	docker compose logs -f
