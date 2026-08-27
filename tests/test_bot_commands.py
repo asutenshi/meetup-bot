@@ -26,7 +26,7 @@ async def test_set_bot_commands_two_scoped_calls(bot: Bot, fake_bot_api: FakeBot
 
     private = by_scope[BotCommandScopeAllPrivateChats]
     group = by_scope[BotCommandScopeAllGroupChats]
-    assert [c.command for c in private.commands] == ["start"]
+    assert [c.command for c in private.commands] == ["start", "new_event"]
     assert [c.command for c in group.commands] == [
         "setup_registration",
         "set_topic",

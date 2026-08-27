@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { AppRoot } from '@telegram-apps/telegram-ui';
 
+import { getProjectContext, hasInitData } from './api/client';
 import type { ApiPaths } from './api/client';
 import './App.css';
 
@@ -12,13 +13,17 @@ type HealthResponse =
   ApiPaths['/health']['get']['responses'][200]['content']['application/json'];
 
 /**
- * Экран-заглушка каркаса (TASKS.md 2.1). Показывает, что собрано и связано:
+ * Экран-заглушка каркаса (TASKS.md 2.1–2.2). Показывает, что собрано и связано:
  * Telegram SDK инициализирован, токены оформления берутся из themeParams,
- * фирменный акцент — сменяемый токен --accent, запрос к бэкенду проходит.
- * Реальные экраны (форма мероприятия и т.д.) — задачи 2.5+.
+ * фирменный акцент — сменяемый токен --accent, запрос к бэкенду проходит, и
+ * распознан контекст открытия (внутри Telegram / с каким проектом). Реальная
+ * форма мероприятия и `POST /api/events` — задача 2.5.
  */
 export function App() {
   const [health, setHealth] = useState<HealthState>('checking');
+
+  const insideTelegram = hasInitData();
+  const project = getProjectContext();
 
   useEffect(() => {
     let alive = true;
@@ -46,6 +51,26 @@ export function App() {
             <code>--accent</code> (WEBAPP_DESIGN.md).
           </p>
           <div className="swatch">--accent</div>
+        </section>
+
+        <section className="card">
+          {!insideTelegram ? (
+            <p className="card__hint">
+              Приложение открыто вне Telegram. Откройте форму через команду{' '}
+              <code>/new_event</code> в личном чате с ботом — иначе бэкенд отклонит
+              запросы (нет подписи <code>initData</code>).
+            </p>
+          ) : project ? (
+            <p className="card__hint">
+              Контекст проекта: <code>{project}</code>. Форма создания мероприятия
+              появится здесь в задаче 2.5.
+            </p>
+          ) : (
+            <p className="card__hint">
+              Контекст проекта не передан (<code>?project=…</code> в URL). Откройте
+              приложение кнопкой из ответа бота на <code>/new_event</code>.
+            </p>
+          )}
         </section>
 
         <section className="card">

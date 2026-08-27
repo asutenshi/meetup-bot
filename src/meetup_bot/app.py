@@ -22,7 +22,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = create_engine(settings)
         app.state.session_factory = create_session_factory(engine)
         app.state.bot = create_bot(settings)
-        app.state.dispatcher = create_dispatcher(app.state.session_factory)
+        app.state.dispatcher = create_dispatcher(app.state.session_factory, settings)
         # Подсказки команд по `/` — до начала обработки апдейтов (TZ §3.6).
         await set_bot_commands(app.state.bot)
         try:
