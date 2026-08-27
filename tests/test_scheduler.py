@@ -40,10 +40,13 @@ def test_create_scheduler_registers_single_interval_pass() -> None:
     assert job.trigger.interval == timedelta(minutes=25)
 
 
-async def test_run_scheduler_pass_empty_only_logs(caplog: pytest.LogCaptureFixture) -> None:
+async def test_run_scheduler_pass_empty_only_logs(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
     caplog.set_level(logging.INFO, logger="meetup_bot.scheduler")
 
-    # `_PASSES` пуст (каркас 4.1) — session_factory не вызывается вовсе.
+    # Пустой список шагов — session_factory не вызывается вовсе.
+    monkeypatch.setattr("meetup_bot.scheduler._PASSES", [])
     await run_scheduler_pass(session_factory=None)  # type: ignore[arg-type]
 
     assert "начало" in caplog.text
