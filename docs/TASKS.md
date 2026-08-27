@@ -57,7 +57,11 @@
 
 - [ ] **2.1 Каркас Web App.** Vite + React + TypeScript, `@telegram-apps/sdk`,
       `@telegram-apps/telegram-ui`, раздача статики; генерация TS-типов из
-      OpenAPI (`openapi-typescript`). (TZ §1.2 таблица «Web App фронтенд»)
+      OpenAPI (`openapi-typescript`). Заложить визуальный язык из
+      [`WEBAPP_DESIGN.md`](./WEBAPP_DESIGN.md): семантические токены на
+      `themeParams`, акцентный цвет — одним сменяемым токеном `--accent`
+      (финальный цвет пока не выбран), без хардкода акцента в компонентах.
+      (TZ §1.2 таблица «Web App фронтенд»)
 - [ ] **2.2 Валидация `initData` на бэкенде.** Проверка `hash` (HMAC,
       `hmac.compare_digest`), `auth_date`, извлечение `tg_user_id`; FastAPI
       dependency, переиспользуемая всеми `/api/*`. (TZ §3.2)
