@@ -68,6 +68,18 @@ API v3.3 **не** дословно совпадает с `@telegram-apps/sdk`:
   отложено до экранов 2.5/2.7, когда будет видно, сколько telegram-ui реально
   нужно. React 18.3.1 стабилен и патчится — для MVP не блокер.
 
+- **TypeScript закреплён на 5.9, не 7 — из-за `openapi-typescript`.**
+  `openapi-typescript@7.13.0` (`peerDependencies` → `typescript: ^5.x`) при
+  сборке `src/api/schema.ts` дёргает `ts.factory` из compiler API; нативный
+  `tsc` v7 этот API не отдаёт — `npm run gen:api` падает
+  (`Cannot read properties of undefined (reading 'createKeywordTypeNode')`).
+  Сам `tsc -b` и `vite build` под TS 7 работают. Ждём релиз `openapi-typescript`
+  с поддержкой TS 7, тогда бампаем.
+
+Инструментарий сборки — **Vite 8** (бандлер Rolldown) + `@vitejs/plugin-react` 6
+(трансформ через oxc, не Babel). Требует Node `>=22.12` — CI и `Dockerfile`
+используют тег `node:22`/`node-version: 22` (последний 22.x), проходит.
+
 ## Оформление
 
 - `src/theme/tokens.css` — семантические токены. Поверхности/текст берутся из

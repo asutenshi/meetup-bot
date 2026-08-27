@@ -161,6 +161,13 @@
       (преемника нет, не deprecated; именно он пинит React на 18). Детали —
       `webapp/README.md` «Известные ограничения».
 
+- [ ] **Web App: TypeScript 7 после апдейта `openapi-typescript`.** Инструментарий
+      сборки поднят до Vite 8 (Rolldown) + `@vitejs/plugin-react` 6, но TS остаётся
+      на 5.9: `openapi-typescript@7.13.0` (peer `typescript: ^5.x`) под нативным
+      `tsc` v7 падает на `ts.factory` (`npm run gen:api`). Бампнуть `typescript` до 7,
+      когда выйдет совместимый `openapi-typescript`. React 19 отдельно ждёт отказа
+      от `telegram-ui` (экраны 2.5/2.7). Детали — `webapp/README.md`.
+
 - [x] **Ревью админ-команд реестра скиллом `/grill-me`.** Пройтись по
       `/members`, `/remove_member`, `/add_admin` и логике ролей
       (`owner`/`admin`/`member`, см. 1.8) — реализация шла быстрой итерацией,
