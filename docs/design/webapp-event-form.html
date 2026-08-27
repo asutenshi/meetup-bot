@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Web App — форма мероприятия (референс)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
+<style>
+  /*
+    Референс к docs/WEBAPP_DESIGN.md — вариант B «Секции-карточки».
+    Статичный HTML-макет, не часть сборки. Экран создания мероприятия (TASKS.md 2.4),
+    поля по TZ §4.3. Переключатели темы и акцента вверху; акцент — заглушка.
+  */
+  :root {
+    --font-body: 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+
+    --bg: #f3f4f7;
+    --surface: #ffffff;
+    --text: #191b21;
+    --text-muted: #5c6472;
+    --text-faint: #939aa8;
+    --border-page: #d8dbe2;
+    --bezel: #0b0c0f;
+
+    --tg-bg: #eeeef3;
+    --tg-section: #ffffff;
+    --tg-text: #0d0d0f;
+    --tg-hint: #8a8d95;
+    --tg-sep: #e0e1e6;
+    --tg-field: #f4f4f7;
+    --border: #d8dbe2;
+    --shadow-card: 0 1px 2px rgba(20,22,30,.05), 0 14px 34px rgba(20,22,30,.07);
+    --shadow-sm: 0 1px 2px rgba(20,22,30,.06);
+
+    --accent: #5b6470;
+    --accent-contrast: #ffffff;
+    --accent-soft: color-mix(in srgb, var(--accent) 15%, var(--tg-section));
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1013; --surface: #191b20; --text: #e9eaee; --text-muted: #9aa1ac;
+      --text-faint: #6b7280; --border-page: #33373f;
+      --tg-bg: #16181c; --tg-section: #232529; --tg-text: #f3f4f6; --tg-hint: #8b8f97;
+      --tg-sep: #34363c; --tg-field: #1b1d21; --border: #33373f;
+      --shadow-card: 0 1px 2px rgba(0,0,0,.4), 0 16px 40px rgba(0,0,0,.5);
+      --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1013; --surface: #191b20; --text: #e9eaee; --text-muted: #9aa1ac;
+    --text-faint: #6b7280; --border-page: #33373f;
+    --tg-bg: #16181c; --tg-section: #232529; --tg-text: #f3f4f6; --tg-hint: #8b8f97;
+    --tg-sep: #34363c; --tg-field: #1b1d21; --border: #33373f;
+    --shadow-card: 0 1px 2px rgba(0,0,0,.4), 0 16px 40px rgba(0,0,0,.5);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--font-body); line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 40px 16px 64px; gap: 26px;
+  }
+
+  .head { width: 100%; max-width: 420px; }
+  .head h1 { font-size: 1.15rem; margin: 0 0 4px; }
+  .head p { margin: 0; color: var(--text-muted); font-size: 13.5px; }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 18px 24px; align-items: center;
+    width: 100%; max-width: 420px;
+    padding: 14px 16px; border: 1px solid var(--border-page); border-radius: 14px;
+    background: var(--surface); box-shadow: var(--shadow-sm);
+  }
+  .ctrl { display: flex; align-items: center; gap: 10px; }
+  .ctrl-label {
+    font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .swatches { display: flex; gap: 6px; }
+  .sw { width: 22px; height: 22px; border-radius: 999px; border: 2px solid transparent; padding: 0; cursor: pointer; }
+  .sw[aria-pressed="true"] { border-color: var(--text); }
+  .sw:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  .seg { display: inline-flex; border: 1px solid var(--border-page); border-radius: 999px; overflow: hidden; }
+  .seg button { padding: 6px 12px; font: 600 11.5px/1 var(--font-body); color: var(--text-muted); background: transparent; border: 0; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--border-page); }
+  .seg button[aria-pressed="true"] { background: var(--text); color: var(--bg); }
+  .seg button:focus-visible { outline: 2px solid var(--text); outline-offset: -2px; }
+
+  /* ---------- device ---------- */
+  .device { width: 100%; max-width: 360px; background: var(--bezel); border-radius: 42px; padding: 9px; box-shadow: var(--shadow-card); }
+  .screen {
+    position: relative; height: 720px; overflow: hidden; border-radius: 34px;
+    background: var(--tg-bg); display: flex; flex-direction: column;
+    font-family: var(--font-ui); color: var(--tg-text);
+  }
+  .tg-head {
+    flex: 0 0 auto; height: 46px; display: flex; align-items: center; gap: 10px;
+    padding: 0 14px; background: var(--tg-section); border-bottom: 1px solid var(--tg-sep);
+  }
+  .tg-head .dot { width: 9px; height: 9px; border-radius: 999px; background: var(--accent); }
+  .tg-head .ttl { font-size: 15px; font-weight: 600; }
+  .tg-head .x { margin-left: auto; color: var(--tg-hint); font-size: 18px; line-height: 1; }
+
+  .scroll { flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; background: var(--tg-bg); padding: 16px 14px 8px; display: flex; flex-direction: column; gap: 14px; }
+  .scroll::-webkit-scrollbar { width: 0; }
+
+  .ic { display: inline-flex; }
+  .ic svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .chev { width: 16px; height: 16px; color: var(--tg-hint); flex: 0 0 auto; }
+  .avatar { width: 30px; height: 30px; border-radius: 999px; flex: 0 0 auto; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--accent-soft); color: var(--accent); }
+
+  .card { background: var(--tg-section); border: 1px solid var(--tg-sep); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 15px; box-shadow: var(--shadow-sm); }
+  .card-h { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; }
+  .card-h .ic { width: 17px; height: 17px; color: var(--accent); }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field > label { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--tg-hint); }
+  .opt { font-size: 10.5px; font-weight: 600; text-transform: lowercase; color: var(--tg-hint); border: 1px solid var(--tg-sep); padding: 1px 7px; border-radius: 999px; }
+  .in { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 14px; background: var(--tg-field); color: var(--tg-text); width: 100%; }
+  .in::placeholder { color: var(--tg-hint); }
+  .in:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  textarea.in { resize: none; min-height: 82px; line-height: 1.45; }
+  .pick { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--border); border-radius: 10px; padding: 11px 12px; font: inherit; font-size: 14px; background: var(--tg-field); color: var(--tg-text); cursor: pointer; width: 100%; text-align: left; }
+  .pick.empty { color: var(--tg-hint); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .plist { display: flex; flex-direction: column; gap: 2px; }
+  .prow { display: flex; align-items: center; gap: 11px; padding: 8px 2px; cursor: pointer; }
+  .prow .nm { font-size: 14px; }
+  .prow .me { color: var(--tg-hint); font-size: 12px; }
+  .prow input { position: absolute; opacity: 0; pointer-events: none; }
+  .box { margin-left: auto; width: 22px; height: 22px; border-radius: 7px; flex: 0 0 auto; border: 1.6px solid var(--border); display: grid; place-items: center; color: var(--accent-contrast); }
+  .box .ic { width: 13px; height: 13px; visibility: hidden; }
+  .prow:has(input:checked) .box { background: var(--accent); border-color: var(--accent); }
+  .prow:has(input:checked) .box .ic { visibility: visible; }
+  .hint { font-size: 12px; color: var(--tg-hint); line-height: 1.4; }
+
+  .foot { position: sticky; bottom: 0; padding: 10px 0 14px; background: linear-gradient(to bottom, transparent, var(--tg-bg) 34%); }
+  .btn { width: 100%; border: 0; border-radius: 12px; padding: 14px; cursor: pointer; font: 600 15px var(--font-ui); background: var(--accent); color: var(--accent-contrast); }
+
+  :where(a, button, input, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="head">
+  <h1>Web App — форма мероприятия</h1>
+  <p>Референс к <code>docs/WEBAPP_DESIGN.md</code>, вариант B «Секции-карточки». Акцент — заглушка, переключается ниже.</p>
+</div>
+
+<div class="controls">
+  <div class="ctrl">
+    <span class="ctrl-label">Акцент</span>
+    <div class="swatches" id="swatches" role="group" aria-label="Акцентный цвет"></div>
+  </div>
+  <div class="ctrl">
+    <span class="ctrl-label">Тема</span>
+    <div class="seg" id="theme" role="group" aria-label="Тема">
+      <button data-theme-val="auto" aria-pressed="true">Авто</button>
+      <button data-theme-val="light" aria-pressed="false">Светлая</button>
+      <button data-theme-val="dark" aria-pressed="false">Тёмная</button>
+    </div>
+  </div>
+</div>
+
+<div class="device">
+  <div class="screen">
+    <div class="tg-head">
+      <span class="dot"></span>
+      <span class="ttl">Новое мероприятие</span>
+      <span class="x">✕</span>
+    </div>
+    <div class="scroll">
+
+      <div class="card">
+        <div class="card-h">
+          <span class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span>
+          Когда
+        </div>
+        <div class="field">
+          <label>Начало</label>
+          <button class="pick" type="button">14 сентября, сб · 18:00
+            <span class="ic chev"><svg viewBox="0 0 20 20"><path d="M7.5 4l6 6-6 6"/></svg></span>
+          </button>
+        </div>
+        <div class="field">
+          <label>Окончание <span class="opt">необязательно</span></label>
+          <button class="pick empty" type="button">Добавить дату окончания
+            <span class="ic chev"><svg viewBox="0 0 20 20"><path d="M7.5 4l6 6-6 6"/></svg></span>
+          </button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <span class="ic"><svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/></svg></span>
+          Где
+        </div>
+        <div class="field">
+          <label>Место</label>
+          <input class="in" type="text" value="Парк Горького, у главного входа">
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <span class="ic"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h8M8 17h5"/></svg></span>
+          О чём
+        </div>
+        <div class="field">
+          <label>Описание</label>
+          <textarea class="in">Вечерняя прогулка, потом посидим в кафе. Готовить ничего не надо — просто приходите.</textarea>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <span class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M15 15h3"/></svg></span>
+          Деньги и места
+        </div>
+        <div class="two">
+          <div class="field">
+            <label>Бюджет, ₽ <span class="opt">необяз.</span></label>
+            <input class="in" type="text" inputmode="numeric" placeholder="—">
+          </div>
+          <div class="field">
+            <label>Мест <span class="opt">необяз.</span></label>
+            <input class="in" type="text" inputmode="numeric" placeholder="—">
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <span class="ic"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.6 19c0-3 2.4-5 5.4-5s5.4 2 5.4 5"/><path d="M16 6.6a3 3 0 010 5.6M18.6 19c0-2.4-1.2-4.1-3.1-4.8"/></svg></span>
+          Кто организует
+        </div>
+        <div class="plist">
+          <label class="prow">
+            <input type="checkbox" checked>
+            <span class="avatar">АК</span>
+            <span class="nm">Аня Королёва <span class="me">— вы</span></span>
+            <span class="box"><span class="ic"><svg viewBox="0 0 20 20"><path d="M4 10.5l4 4 8-9"/></svg></span></span>
+          </label>
+          <label class="prow">
+            <input type="checkbox">
+            <span class="avatar">МР</span>
+            <span class="nm">Миша Родин</span>
+            <span class="box"><span class="ic"><svg viewBox="0 0 20 20"><path d="M4 10.5l4 4 8-9"/></svg></span></span>
+          </label>
+          <label class="prow">
+            <input type="checkbox">
+            <span class="avatar">ЛГ</span>
+            <span class="nm">Лера Гущина</span>
+            <span class="box"><span class="ic"><svg viewBox="0 0 20 20"><path d="M4 10.5l4 4 8-9"/></svg></span></span>
+          </label>
+        </div>
+        <p class="hint">Можно снять галочку и с себя — тогда у мероприятия не будет
+          организатора, а править его смогут создатель и админы.</p>
+      </div>
+
+      <div class="foot">
+        <button class="btn" type="button">Опубликовать анонс</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var ACCENTS = [
+      { id: 'graphite', name: 'Нейтральный графит', c: '#5b6470', t: '#ffffff' },
+      { id: 'tg',       name: 'Telegram',           c: '#2f8fd6', t: '#ffffff' },
+      { id: 'indigo',   name: 'Индиго',             c: '#5a5ad6', t: '#ffffff' },
+      { id: 'green',    name: 'Зелёный',            c: '#2f9e73', t: '#ffffff' },
+      { id: 'terra',    name: 'Терракота',          c: '#c9603f', t: '#ffffff' },
+      { id: 'plum',     name: 'Слива',              c: '#8a4f9e', t: '#ffffff' }
+    ];
+    var box = document.getElementById('swatches');
+    var LS_A = 'evform-ref-accent', LS_T = 'evform-ref-theme';
+
+    function applyAccent(id) {
+      var a = ACCENTS.find(function (x) { return x.id === id; }) || ACCENTS[0];
+      root.style.setProperty('--accent', a.c);
+      root.style.setProperty('--accent-contrast', a.t);
+      Array.prototype.forEach.call(box.children, function (b) {
+        b.setAttribute('aria-pressed', String(b.dataset.acc === a.id));
+      });
+      try { localStorage.setItem(LS_A, a.id); } catch (e) {}
+    }
+    ACCENTS.forEach(function (a) {
+      var b = document.createElement('button');
+      b.className = 'sw'; b.type = 'button'; b.dataset.acc = a.id;
+      b.style.background = a.c; b.title = a.name; b.setAttribute('aria-label', a.name);
+      b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function () { applyAccent(a.id); });
+      box.appendChild(b);
+    });
+
+    var themeBox = document.getElementById('theme');
+    function applyTheme(val) {
+      if (val === 'auto') root.removeAttribute('data-theme');
+      else root.setAttribute('data-theme', val);
+      Array.prototype.forEach.call(themeBox.children, function (b) {
+        b.setAttribute('aria-pressed', String(b.dataset.themeVal === val));
+      });
+      try { localStorage.setItem(LS_T, val); } catch (e) {}
+    }
+    Array.prototype.forEach.call(themeBox.children, function (b) {
+      b.addEventListener('click', function () { applyTheme(b.dataset.themeVal); });
+    });
+
+    var savedA = 'graphite', savedT = 'auto';
+    try { savedA = localStorage.getItem(LS_A) || savedA; } catch (e) {}
+    try { savedT = localStorage.getItem(LS_T) || savedT; } catch (e) {}
+    applyAccent(savedA);
+    applyTheme(savedT);
+  })();
+</script>
+</body>
+</html>
