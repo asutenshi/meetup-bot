@@ -9,6 +9,9 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from meetup_bot.db.base import Base
 from meetup_bot.db.models import (  # noqa: F401
+    Event,
+    EventCoOrganizer,
+    EventRSVP,
     Project,
     ProjectMembership,
     ProjectSettings,

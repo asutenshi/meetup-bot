@@ -1,4 +1,5 @@
 import datetime
+import decimal
 
 from sqlalchemy import (
     BigInteger,
@@ -7,14 +8,22 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    Numeric,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from meetup_bot.db.base import Base
-from meetup_bot.db.enums import MembershipRole, MembershipStatus, TopicCategory
+from meetup_bot.db.enums import (
+    EventStatus,
+    MembershipRole,
+    MembershipStatus,
+    RSVPStatus,
+    TopicCategory,
+)
 
 
 def _enum_column(enum_cls: type) -> Enum:
@@ -127,4 +136,81 @@ class ProjectMembership(Base):
     project: Mapped["Project"] = relationship(
         back_populates="memberships", foreign_keys=[project_id]
     )
+    user: Mapped["User"] = relationship(foreign_keys=[user_id])
+
+
+class Event(Base):
+    __tablename__ = "event"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("project.id"))
+    title: Mapped[str | None] = mapped_column(String)
+    description: Mapped[str] = mapped_column(Text)
+    starts_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True))
+    # Опциональное окончание для многодневных мероприятий; `null` — считаем
+    # эффективным окончанием `starts_at`. Влияет только на момент финализации
+    # явки (TZ §2.6, §3.4), не на RSVP/анонс.
+    ends_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
+    location: Mapped[str] = mapped_column(String)
+    budget_per_person: Mapped[decimal.Decimal | None] = mapped_column(Numeric(10, 2))
+    seats_limit: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[EventStatus] = mapped_column(
+        _enum_column(EventStatus),
+        default=EventStatus.PLANNED,
+        server_default=EventStatus.PLANNED.value,
+    )
+    created_by: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    announcement_message_id: Mapped[int | None] = mapped_column(BigInteger)
+    # Проставляется воркером при финализации явки (TZ §2.6, §3.4, п.1). Пока
+    # `null` — мероприятие не финализировано, RSVP можно свободно править.
+    attendance_finalized_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    project: Mapped["Project"] = relationship()
+    creator: Mapped["User"] = relationship(foreign_keys=[created_by])
+    co_organizers: Mapped[list["EventCoOrganizer"]] = relationship(back_populates="event")
+    rsvps: Mapped[list["EventRSVP"]] = relationship(back_populates="event")
+
+
+class EventCoOrganizer(Base):
+    __tablename__ = "event_co_organizer"
+    __table_args__ = (UniqueConstraint("event_id", "user_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("event.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    added_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    event: Mapped["Event"] = relationship(back_populates="co_organizers")
+    user: Mapped["User"] = relationship(foreign_keys=[user_id])
+
+
+class EventRSVP(Base):
+    __tablename__ = "event_rsvp"
+    __table_args__ = (UniqueConstraint("event_id", "user_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("event.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    status: Mapped[RSVPStatus] = mapped_column(_enum_column(RSVPStatus))
+    responded_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # Кто последним менял статус: сам участник (тогда `== user_id`) либо
+    # организатор/создатель/админ при постфактум-правке (TZ §2.8, §3.4, п.1).
+    updated_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    event: Mapped["Event"] = relationship(back_populates="rsvps")
     user: Mapped["User"] = relationship(foreign_keys=[user_id])

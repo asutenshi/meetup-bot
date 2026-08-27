@@ -20,3 +20,14 @@ class MembershipRole(enum.Enum):
 class MembershipStatus(enum.Enum):
     ACTIVE = "active"
     REMOVED = "removed"
+
+
+class EventStatus(enum.Enum):
+    PLANNED = "planned"
+    CANCELLED = "cancelled"
+    COMPLETED = "completed"
+
+
+class RSVPStatus(enum.Enum):
+    GOING = "going"
+    NOT_GOING = "not_going"
