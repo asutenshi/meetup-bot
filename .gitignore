@@ -25,6 +25,7 @@ htmlcov/
 # Web App frontend (Node)
 webapp/node_modules/
 webapp/dist/
+webapp/openapi.json
 
 # Docker
 *.pid

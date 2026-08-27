@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     public_base_url: str | None = None
     host: str = "0.0.0.0"
     port: int = 8080
+    # Каталог со сборкой Web App (Vite → webapp/dist). Раздаётся под /app,
+    # если каталог существует; иначе бэкенд поднимается без Mini App
+    # (dev, CI без node). См. app._mount_webapp.
+    webapp_dist_dir: str = "webapp/dist"
 
 
 @lru_cache

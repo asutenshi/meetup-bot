@@ -2,7 +2,8 @@
 
 .PHONY: help up down restart migrate logs logs-all ps psql \
 	webhook-set webhook-info webhook-delete health smoke \
-	check lint typecheck test
+	check lint typecheck test \
+	webapp-install webapp-dev webapp-build webapp-check openapi
 
 help: ## Показать список целей
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -49,6 +50,22 @@ health: ## Дождаться и проверить GET /health локально
 
 smoke: ## Разовая проверка связи с Telegram Bot API (BOT_TOKEN/TEST_CHAT_ID из .env)
 	uv run python scripts/smoke_test_bot.py
+
+webapp-install: ## Установить зависимости Web App (webapp/)
+	cd webapp && npm ci
+
+webapp-dev: ## Dev-сервер Vite (нужен запущенный бэкенд на :8080 для /api и /health)
+	cd webapp && npm run dev
+
+webapp-build: ## Собрать Web App в webapp/dist (её раздаёт бэкенд под /app)
+	cd webapp && npm run build
+
+webapp-check: ## Проверки Web App как в CI (tsc + vite build)
+	cd webapp && npm run build
+
+openapi: ## Пересобрать webapp/src/api/schema.ts из OpenAPI-схемы FastAPI
+	uv run python scripts/dump_openapi.py webapp/openapi.json
+	cd webapp && npm run gen:api
 
 check: lint typecheck test ## Прогнать тот же набор проверок, что в CI перед PR
 

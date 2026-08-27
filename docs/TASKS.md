@@ -55,7 +55,7 @@
 
 ## Этап 2. Мероприятия: создание и RSVP
 
-- [ ] **2.1 Каркас Web App.** Vite + React + TypeScript, `@telegram-apps/sdk`,
+- [x] **2.1 Каркас Web App.** Vite + React + TypeScript, `@telegram-apps/sdk`,
       `@telegram-apps/telegram-ui`, раздача статики; генерация TS-типов из
       OpenAPI (`openapi-typescript`). Заложить визуальный язык из
       [`WEBAPP_DESIGN.md`](./WEBAPP_DESIGN.md): семантические токены на

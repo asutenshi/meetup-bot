@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-ssr
+
+# Промежуточный дамп OpenAPI-схемы для openapi-typescript (см. Makefile: make openapi).
+# Коммитится только результат — src/api/schema.ts.
+openapi.json
+
+*.local
+.DS_Store
+npm-debug.log*
