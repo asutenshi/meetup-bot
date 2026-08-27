@@ -30,10 +30,12 @@ async def test_set_bot_commands_two_scoped_calls(bot: Bot, fake_bot_api: FakeBot
     assert [c.command for c in group.commands] == [
         "setup_registration",
         "set_topic",
+        "unset_topic",
         "all",
         "members",
         "remove_member",
         "add_admin",
+        "remove_admin",
     ]
 
 

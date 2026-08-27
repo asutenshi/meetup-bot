@@ -28,10 +28,12 @@ GROUP_COMMANDS: list[BotCommand] = [
         description="Настроить бота в этом чате / переназначить топик",
     ),
     BotCommand(command="set_topic", description="Привязать топик к категории сообщений"),
+    BotCommand(command="unset_topic", description="Снять привязку категории от топика"),
     BotCommand(command="all", description="Позвать всех зарегистрированных участников"),
     BotCommand(command="members", description="Список участников проекта"),
     BotCommand(command="remove_member", description="Удалить участника из проекта"),
     BotCommand(command="add_admin", description="Назначить администратора проекта"),
+    BotCommand(command="remove_admin", description="Понизить со-администратора до участника"),
 ]
 
 

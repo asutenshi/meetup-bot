@@ -191,6 +191,28 @@ async def set_project_topic(
     return setting, True
 
 
+async def unset_project_topic(
+    session: AsyncSession, *, project_id: int, category: TopicCategory
+) -> bool:
+    """Удаляет строку `ProjectTopicSetting(project_id, category)` — `/unset_topic`
+    (TZ §3.5 "Снятие привязки"). Возвращает `True`, если строка была и удалена,
+    `False`, если привязки и так не было (idempotent no-op). В отличие от
+    `set_project_topic`, не требует вызова из конкретного топика — категория
+    известна, физическое присутствие не нужно."""
+    setting = await session.scalar(
+        select(ProjectTopicSetting).where(
+            ProjectTopicSetting.project_id == project_id,
+            ProjectTopicSetting.category == category,
+        )
+    )
+    if setting is None:
+        return False
+
+    await session.delete(setting)
+    await session.flush()
+    return True
+
+
 async def resolve_thread_id(
     session: AsyncSession, *, project_id: int, category: TopicCategory
 ) -> int | None:
@@ -209,6 +231,41 @@ async def resolve_thread_id(
 
     project = await session.get(Project, project_id)
     return project.default_thread_id if project is not None else None
+
+
+async def is_rights_gate_satisfied(
+    session: AsyncSession,
+    *,
+    project_id: int,
+    chat_is_forum: bool,
+    message_thread_id: int | None,
+) -> bool:
+    """Гейт admin-команд, меняющих права/состав проекта (`/members`,
+    `/remove_member`, `/add_admin`, `/remove_admin` — TZ §3.7): они разрешены
+    только из топика, назначенного категории `rights`.
+
+    Fallback (возвращает `True`, гейт не действует):
+    - чат без топиков (`chat_is_forum=False`) — топик `rights` там существовать
+      не может, гейтить нечем;
+    - для проекта нет строки `ProjectTopicSetting(category=rights)` — новый
+      проект или топик отвязали через `/unset_topic rights`; работает как до
+      введения фичи, чистая ролевая проверка.
+
+    Иначе — команда должна быть вызвана из назначенного топика
+    (`message_thread_id` совпадает с `thread_id` строки `rights`)."""
+    if not chat_is_forum:
+        return True
+
+    setting = await session.scalar(
+        select(ProjectTopicSetting).where(
+            ProjectTopicSetting.project_id == project_id,
+            ProjectTopicSetting.category == TopicCategory.RIGHTS,
+        )
+    )
+    if setting is None:
+        return True
+
+    return message_thread_id == setting.thread_id
 
 
 async def is_project_owner(session: AsyncSession, *, project_id: int, tg_user_id: int) -> bool:
@@ -264,3 +321,11 @@ async def remove_membership(
 def promote_to_admin(membership: ProjectMembership) -> None:
     """Назначает участника со-админом проекта (TZ §4.1 `/add_admin`)."""
     membership.role = MembershipRole.ADMIN
+
+
+def demote_to_member(membership: ProjectMembership) -> None:
+    """Понижает со-админа обратно до обычного участника (TZ §4.1 `/remove_admin`) —
+    обратная операция к `promote_to_admin`. Участник остаётся в проекте, снимаются
+    только права. Владельца (`owner`) это не касается — он не попадает в список
+    кандидатов `/remove_admin`."""
+    membership.role = MembershipRole.MEMBER
