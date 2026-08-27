@@ -72,7 +72,7 @@
       `PRIVATE_COMMANDS` / `setMyCommands`. Фронт: чтение `project` из URL,
       проброс в `apiFetch`, режимы «вне Telegram» и «без project-контекста». Сама
       форма и `POST /api/events` — задача 2.5. (TZ §3.2, §3.8, §4.3)
-- [ ] **2.3 Валидация `initData` на бэкенде.** Проверка `hash` (HMAC,
+- [x] **2.3 Валидация `initData` на бэкенде.** Проверка `hash` (HMAC,
       `hmac.compare_digest`), `auth_date`, извлечение `tg_user_id`; FastAPI
       dependency, переиспользуемая всеми `/api/*`. (TZ §3.2)
 - [x] **2.4 Модели `Event`, `EventCoOrganizer`, `EventRSVP` + миграция.**
