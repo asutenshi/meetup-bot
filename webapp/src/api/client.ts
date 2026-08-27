@@ -1,4 +1,4 @@
-import { retrieveRawInitData } from '@telegram-apps/sdk';
+import { retrieveRawInitData } from '@tma.js/sdk';
 
 import type { paths } from './schema';
 
