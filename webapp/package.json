@@ -1,0 +1,28 @@
+{
+  "name": "meetup-bot-webapp",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Telegram Mini App фронтенд meetup-бота (каркас, TASKS.md 2.1)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --noEmit",
+    "gen:api": "openapi-typescript ./openapi.json -o ./src/api/schema.ts"
+  },
+  "dependencies": {
+    "@telegram-apps/sdk": "^3.11.8",
+    "@telegram-apps/telegram-ui": "^2.1.13",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^5.2.0",
+    "openapi-typescript": "^7.13.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.6"
+  }
+}

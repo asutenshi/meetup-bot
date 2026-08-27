@@ -1,0 +1,22 @@
+.git
+.github
+**/__pycache__
+*.py[cod]
+.venv
+.mypy_cache
+.ruff_cache
+.pytest_cache
+.coverage
+htmlcov
+
+# Web App: в образ кладётся только собранный dist (из стадии webapp-build)
+webapp/node_modules
+webapp/dist
+webapp/openapi.json
+
+.env
+.env.*
+!.env.example
+*.dump
+*.sql.gz
+docs
