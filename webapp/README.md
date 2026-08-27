@@ -33,6 +33,22 @@
 - **Аутентификация.** `src/api/client.ts` кладёт `initData` в заголовок
   `X-Telegram-Init-Data`. Валидация на бэкенде — задача 2.2.
 
+## Известные ограничения
+
+- **React закреплён на 18, не 19.** `@telegram-apps/telegram-ui@2` в
+  `peerDependencies` требует `react@^18.2.0`. Не бампать React до 19, пока
+  telegram-ui не начнёт его поддерживать.
+- **Экосистема `@telegram-apps/*` мигрирует на `@tma.js/*`** — `npm install`
+  показывает deprecation-warnings на транзитивных пакетах
+  (`@telegram-apps/bridge`, `/transformers`, `/types`), существует
+  `@tma.js/sdk`. Сами `@telegram-apps/sdk` и `@telegram-apps/telegram-ui` пока
+  не deprecated. Задача 2.1 намеренно использует `@telegram-apps/*` (как в
+  TASKS.md); переход на `@tma.js/*` — отдельное решение, не в этом каркасе.
+- **`npm audit` — 4 high severity.** ReDoS в `valibot` (`GHSA-vqpr-j7v3-hqw9`),
+  тянется транзитивно через `@telegram-apps/sdk`. `npm audit fix` закрывает его
+  только мажорным даунгрейдом SDK (breaking) — оставлено как есть до обновления
+  апстрима.
+
 ## Оформление
 
 - `src/theme/tokens.css` — семантические токены. Поверхности/текст берутся из
