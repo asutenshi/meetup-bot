@@ -286,6 +286,43 @@ async def is_project_owner(session: AsyncSession, *, project_id: int, tg_user_id
     return membership is not None
 
 
+async def is_active_member(session: AsyncSession, *, project_id: int, tg_user_id: int) -> bool:
+    """Проверяет, что `tg_user_id` — активный участник проекта (любая роль). Нужно
+    командам из лички, доступным всем участникам (`/new_event` и т.п., TZ §3.8),
+    и повторной сверке контекста при клике по инлайн-кнопке выбора проекта."""
+    membership = await session.scalar(
+        select(ProjectMembership)
+        .join(User, User.id == ProjectMembership.user_id)
+        .where(
+            ProjectMembership.project_id == project_id,
+            User.tg_user_id == tg_user_id,
+            ProjectMembership.status == MembershipStatus.ACTIVE,
+        )
+    )
+    return membership is not None
+
+
+async def list_user_active_projects(
+    session: AsyncSession, *, tg_user_id: int
+) -> list[Project]:
+    """Активные проекты, где `tg_user_id` — активный участник (любая роль),
+    упорядоченные по имени. Используется командами из приватного чата, где
+    контекст проекта выбирает сам пользователь: при одном проекте бот сразу
+    отдаёт `web_app`-кнопку, при нескольких — сперва инлайн-выбор (TZ §3.8, §4.3)."""
+    result = await session.scalars(
+        select(Project)
+        .join(ProjectMembership, ProjectMembership.project_id == Project.id)
+        .join(User, User.id == ProjectMembership.user_id)
+        .where(
+            User.tg_user_id == tg_user_id,
+            ProjectMembership.status == MembershipStatus.ACTIVE,
+            Project.is_active.is_(True),
+        )
+        .order_by(Project.name)
+    )
+    return list(result)
+
+
 async def list_active_memberships(
     session: AsyncSession, *, project_id: int, role: MembershipRole | None = None
 ) -> list[tuple[ProjectMembership, User]]:

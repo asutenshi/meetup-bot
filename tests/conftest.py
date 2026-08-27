@@ -44,6 +44,7 @@ class FakeBotApi:
         self.sent_thread_ids: list[int | None] = []
         self.sent_messages: list[SendMessage] = []
         self.edited_texts: list[str] = []
+        self.edited_messages: list[EditMessageText] = []
         self.callback_answers: list[str] = []
         self.set_my_commands_calls: list[SetMyCommands] = []
 
@@ -64,6 +65,7 @@ class FakeBotApi:
             )
         if isinstance(method, EditMessageText):
             self.edited_texts.append(method.text or "")
+            self.edited_messages.append(method)
             return Message(
                 message_id=method.message_id or next(self._message_ids),
                 date=datetime.now(tz=UTC),

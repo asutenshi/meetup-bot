@@ -4,10 +4,11 @@
 [`@telegram-apps/telegram-ui`](https://github.com/Telegram-Mini-Apps/TelegramUI),
 интеграция с Telegram — [`@tma.js/sdk`](https://docs.telegram-mini-apps.com/).
 
-Каркас (TASKS.md 2.1). Кнопка открытия Mini App из лички — задача 2.2, реальные
-экраны (форма создания мероприятия и т.д.) — задачи 2.5+. Визуальный язык
-(карточки-секции, токены, сменяемый акцент) —
-[`../docs/WEBAPP_DESIGN.md`](../docs/WEBAPP_DESIGN.md).
+Каркас (TASKS.md 2.1) + вход из лички (2.2): команда `/new_event` присылает
+`web_app`-кнопку с `?project=<invite_payload>` в URL, фронт читает этот контекст
+(`getProjectContext`) и подставляет его в `apiFetch`. Реальные экраны (форма
+создания мероприятия и т.д.) — задачи 2.5+. Визуальный язык (карточки-секции,
+токены, сменяемый акцент) — [`../docs/WEBAPP_DESIGN.md`](../docs/WEBAPP_DESIGN.md).
 
 ## Команды
 
@@ -31,8 +32,10 @@
 - **Типы API.** `make openapi` дампит OpenAPI-схему FastAPI в `webapp/openapi.json`
   (в `.gitignore`) и генерит из неё `src/api/schema.ts` (коммитится).
   Перегенерировать после изменения эндпоинтов бэкенда.
-- **Аутентификация.** `src/api/client.ts` кладёт `initData` в заголовок
-  `X-Telegram-Init-Data`. Валидация на бэкенде — задача 2.3.
+- **Аутентификация.** `src/api/client.ts` (`apiFetch`) кладёт `initData` в
+  заголовок `X-Telegram-Init-Data` и параметр `project` (= `invite_payload`) в
+  query-string; бэкенд валидирует подпись и сверяет проект с `ProjectMembership`
+  (TZ §3.2).
 
 ## SDK: `@tma.js/sdk`
 

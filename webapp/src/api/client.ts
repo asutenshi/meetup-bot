@@ -4,23 +4,51 @@ import type { paths } from './schema';
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '/api';
 
-/**
- * Заголовок с подписанной строкой initData (TZ §3.2). Бэкенд валидирует её на
- * каждый запрос — это задача 2.3. Вне Telegram initData нет, заголовок не
- * добавляется (такие запросы бэкенд отклонит).
- */
-function initDataHeader(): Record<string, string> {
+function rawInitData(): string | undefined {
   try {
-    const raw = retrieveRawInitData();
-    return raw ? { 'X-Telegram-Init-Data': raw } : {};
+    return retrieveRawInitData();
   } catch {
-    return {};
+    return undefined;
   }
 }
 
-/** fetch к бэкенду с автоматическим X-Telegram-Init-Data. */
+/**
+ * Открыто ли приложение внутри Telegram — есть ли подписанная initData. Вне
+ * Telegram (открыли ссылку в браузере напрямую) её нет, и любой запрос к API
+ * бэкенд отклонит: экраны показывают об этом понятное предупреждение.
+ */
+export function hasInitData(): boolean {
+  return rawInitData() !== undefined;
+}
+
+/**
+ * Значение query-параметра `project` из URL Mini App. В личке бот подставляет
+ * туда `invite_payload` проекта (TZ §3.8): формы Web App всегда открываются в
+ * контексте конкретного проекта. Открыли приложение вне этого контекста — `null`.
+ */
+export function getProjectContext(): string | null {
+  const value = new URLSearchParams(window.location.search).get('project');
+  return value && value.trim() ? value : null;
+}
+
+function initDataHeader(): Record<string, string> {
+  const raw = rawInitData();
+  return raw ? { 'X-Telegram-Init-Data': raw } : {};
+}
+
+/**
+ * fetch к бэкенду с автоматическим `X-Telegram-Init-Data` и параметром
+ * `project` (бэкенд валидирует подпись и сверяет проект с `ProjectMembership`
+ * пользователя — TZ §3.2). Вне Telegram заголовок не добавляется, вне
+ * project-контекста параметр не добавляется — такие запросы бэкенд отклонит.
+ */
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(`${API_BASE}${path}`, {
+  const project = getProjectContext();
+  let url = `${API_BASE}${path}`;
+  if (project && !/[?&]project=/.test(url)) {
+    url += `${url.includes('?') ? '&' : '?'}project=${encodeURIComponent(project)}`;
+  }
+  return fetch(url, {
     ...init,
     headers: { ...initDataHeader(), ...init?.headers },
   });

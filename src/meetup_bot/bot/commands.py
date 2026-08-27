@@ -15,9 +15,10 @@ from aiogram.types import (
     BotCommandScopeAllPrivateChats,
 )
 
-# `/start` работает только в личке (`F.chat.type == "private"`, см. start.py).
+# Команды только для лички (`F.chat.type == "private"`, см. start.py / new_event.py).
 PRIVATE_COMMANDS: list[BotCommand] = [
     BotCommand(command="start", description="Зарегистрироваться по ссылке из чата"),
+    BotCommand(command="new_event", description="Создать мероприятие"),
 ]
 
 # Все групповые команды зарегистрированы на `group`/`supergroup` и доступны

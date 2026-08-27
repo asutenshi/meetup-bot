@@ -8,9 +8,11 @@ from meetup_bot.services.projects import (
     ensure_membership,
     get_or_create_project,
     get_or_create_user,
+    is_active_member,
     is_project_admin,
     is_project_owner,
     is_rights_gate_satisfied,
+    list_user_active_projects,
     provision_project,
     remove_membership,
     resolve_thread_id,
@@ -80,6 +82,58 @@ async def test_ensure_membership_is_idempotent(session: AsyncSession) -> None:
     assert second.role == MembershipRole.ADMIN
     assert first_created is True
     assert second_created is False
+
+
+async def test_list_user_active_projects_filters_and_orders(session: AsyncSession) -> None:
+    beta, _ = await get_or_create_project(session, tg_chat_id=-2, name="Beta")
+    alpha, _ = await get_or_create_project(session, tg_chat_id=-1, name="Alpha")
+    gamma, _ = await get_or_create_project(session, tg_chat_id=-3, name="Gamma")
+    user = await get_or_create_user(
+        session, tg_user_id=1, username="u", first_name="U", last_name=None
+    )
+    other = await get_or_create_user(
+        session, tg_user_id=2, username="o", first_name="O", last_name=None
+    )
+    await session.flush()
+
+    await ensure_membership(
+        session, project_id=alpha.id, user_id=user.id, role=MembershipRole.MEMBER
+    )
+    await ensure_membership(
+        session, project_id=beta.id, user_id=user.id, role=MembershipRole.ADMIN
+    )
+    # Удалённое членство и чужое членство в список не попадают.
+    removed, _ = await ensure_membership(
+        session, project_id=gamma.id, user_id=user.id, role=MembershipRole.MEMBER
+    )
+    removed.status = MembershipStatus.REMOVED
+    await ensure_membership(
+        session, project_id=gamma.id, user_id=other.id, role=MembershipRole.MEMBER
+    )
+    await session.commit()
+
+    projects = await list_user_active_projects(session, tg_user_id=1)
+
+    assert [p.name for p in projects] == ["Alpha", "Beta"]
+
+
+async def test_is_active_member_respects_status(session: AsyncSession) -> None:
+    project, _ = await get_or_create_project(session, tg_chat_id=-1, name="Alpha")
+    user = await get_or_create_user(
+        session, tg_user_id=1, username="u", first_name="U", last_name=None
+    )
+    await session.flush()
+    membership, _ = await ensure_membership(
+        session, project_id=project.id, user_id=user.id, role=MembershipRole.MEMBER
+    )
+    await session.commit()
+
+    assert await is_active_member(session, project_id=project.id, tg_user_id=1) is True
+    assert await is_active_member(session, project_id=project.id, tg_user_id=999) is False
+
+    membership.status = MembershipStatus.REMOVED
+    await session.commit()
+    assert await is_active_member(session, project_id=project.id, tg_user_id=1) is False
 
 
 async def test_provision_project_without_force_keeps_existing_thread_id(
