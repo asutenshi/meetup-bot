@@ -1,4 +1,4 @@
-import { themeParams } from '@telegram-apps/sdk';
+import { themeParams } from '@tma.js/sdk';
 
 /**
  * Отображение ключей Telegram themeParams на семантические токены
@@ -6,14 +6,13 @@ import { themeParams } from '@telegram-apps/sdk';
  * какой themeParams за ними стоит.
  */
 function paramsToTokens(): Record<string, string | undefined> {
-  const p = themeParams.state();
   return {
-    '--tg-bg': p.secondaryBackgroundColor,
-    '--tg-section': p.sectionBackgroundColor ?? p.backgroundColor,
-    '--tg-text': p.textColor,
-    '--tg-hint': p.hintColor,
-    '--tg-sep': p.sectionSeparatorColor,
-    '--tg-destructive': p.destructiveTextColor,
+    '--tg-bg': themeParams.secondaryBgColor(),
+    '--tg-section': themeParams.sectionBgColor() ?? themeParams.bgColor(),
+    '--tg-text': themeParams.textColor(),
+    '--tg-hint': themeParams.hintColor(),
+    '--tg-sep': themeParams.sectionSeparatorColor(),
+    '--tg-destructive': themeParams.destructiveTextColor(),
   };
 }
 

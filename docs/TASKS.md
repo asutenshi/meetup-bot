@@ -147,17 +147,18 @@
 
 ## Технический долг
 
-- [ ] **Миграция Web App SDK на `@tma.js/*`.** `@telegram-apps/sdk@3.11.8`
+- [x] **Миграция Web App SDK на `@tma.js/*`.** `@telegram-apps/sdk@3.11.8` был
       заморожен (последняя публикация 2025-12-05), его транзитивные
       `@telegram-apps/bridge` / `transformers` / `types` помечены deprecated
-      («Use @tma.js/… instead») и точечно пинят уязвимый `valibot`
+      («Use @tma.js/… instead») и точечно пинили уязвимый `valibot`
       (`GHSA-vqpr-j7v3-hqw9` ReDoS, `GHSA-5qjj-4xww-7phc`) без шанса на
-      апстрим-фикс. `@tma.js/sdk@3.3.0` — тот же мажор и API
-      (`init`/`themeParams`/`viewport`/`retrieveRawInitData`), тянет
-      `valibot@1.4.2` → `npm audit` 0 уязвимостей. Наша поверхность — 3 файла
-      (`webapp/src/api/client.ts`, `telegram/init.ts`, `theme/applyThemeParams.ts`).
-      `@telegram-apps/telegram-ui` остаётся (преемника нет, не deprecated; именно
-      он пинит React на 18). Сделать до задачи 2.2. Детали и статус —
+      апстрим-фикс. Заменено на `@tma.js/sdk@3.3.0` (тот же мажор, `valibot@1.4.2`
+      → `npm audit` 0 уязвимостей). API v3.3 отличается от `@telegram-apps/sdk`:
+      `themeParams.mountSync()` → `themeParams.mount()`, ключи `themeParams` —
+      через сигнал-геттеры инстанса (`themeParams.secondaryBgColor()` и т.п.).
+      Поверхность — 3 файла (`webapp/src/api/client.ts`, `telegram/init.ts`,
+      `theme/applyThemeParams.ts`). `@telegram-apps/telegram-ui` остаётся
+      (преемника нет, не deprecated; именно он пинит React на 18). Детали —
       `webapp/README.md` «Известные ограничения».
 
 - [x] **Ревью админ-команд реестра скиллом `/grill-me`.** Пройтись по

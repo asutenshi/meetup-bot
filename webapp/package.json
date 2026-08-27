@@ -12,8 +12,8 @@
     "gen:api": "openapi-typescript ./openapi.json -o ./src/api/schema.ts"
   },
   "dependencies": {
-    "@telegram-apps/sdk": "^3.11.8",
     "@telegram-apps/telegram-ui": "^2.1.13",
+    "@tma.js/sdk": "^3.3.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

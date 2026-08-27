@@ -1,4 +1,4 @@
-import { init, themeParams, viewport } from '@telegram-apps/sdk';
+import { init, themeParams, viewport } from '@tma.js/sdk';
 
 let started = false;
 
@@ -20,8 +20,8 @@ export function initTelegram(): void {
     return;
   }
 
-  if (themeParams.mountSync.isAvailable()) {
-    themeParams.mountSync();
+  if (themeParams.mount.isAvailable()) {
+    themeParams.mount();
   }
 
   if (viewport.mount.isAvailable()) {
