@@ -75,7 +75,7 @@
 - [ ] **2.3 Валидация `initData` на бэкенде.** Проверка `hash` (HMAC,
       `hmac.compare_digest`), `auth_date`, извлечение `tg_user_id`; FastAPI
       dependency, переиспользуемая всеми `/api/*`. (TZ §3.2)
-- [ ] **2.4 Модели `Event`, `EventCoOrganizer`, `EventRSVP` + миграция.**
+- [x] **2.4 Модели `Event`, `EventCoOrganizer`, `EventRSVP` + миграция.**
       Включая `Event.ends_at`, `Event.attendance_finalized_at`,
       `EventRSVP.updated_by`. (TZ §2.6–2.8)
 - [ ] **2.5 Форма создания мероприятия + `POST /api/events`.** Поля из TZ §4.3

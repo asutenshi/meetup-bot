@@ -18,6 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from meetup_bot.db.base import Base
 from meetup_bot.db.models import (  # noqa: F401
+    Event,
+    EventCoOrganizer,
+    EventRSVP,
     Project,
     ProjectMembership,
     ProjectSettings,
