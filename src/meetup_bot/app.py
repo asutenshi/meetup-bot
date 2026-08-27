@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 
 from meetup_bot.api import router as api_router
 from meetup_bot.bot import create_bot, create_dispatcher
+from meetup_bot.bot.commands import set_bot_commands
 from meetup_bot.config import Settings, get_settings
 from meetup_bot.db.session import create_engine, create_session_factory
 
@@ -20,6 +21,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.session_factory = create_session_factory(engine)
         app.state.bot = create_bot(settings)
         app.state.dispatcher = create_dispatcher(app.state.session_factory)
+        # Подсказки команд по `/` — до начала обработки апдейтов (TZ §3.6).
+        await set_bot_commands(app.state.bot)
         try:
             yield
         finally:

@@ -40,7 +40,7 @@
       `money_collections` / `general`) через upsert `ProjectTopicSetting`,
       функция `resolve_thread_id(project_id, category)` для дальнейшего
       переиспользования. (TZ §3.5)
-- [ ] **1.10 Меню команд бота (`setMyCommands`).** Регистрация подсказок команд
+- [x] **1.10 Меню команд бота (`setMyCommands`).** Регистрация подсказок команд
       по `/` через `bot.set_my_commands()` при старте приложения, отдельно для
       `BotCommandScopeAllPrivateChats` (`/start`) и
       `BotCommandScopeAllGroupChats` (`/setup_registration`, `/set_topic`,
