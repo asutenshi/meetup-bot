@@ -4,8 +4,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from meetup_bot.bot import create_dispatcher
-from meetup_bot.db.enums import MembershipRole, MembershipStatus
-from meetup_bot.db.models import Project, ProjectMembership, ProjectSettings, User
+from meetup_bot.db.enums import MembershipRole, MembershipStatus, TopicCategory
+from meetup_bot.db.models import (
+    Project,
+    ProjectMembership,
+    ProjectSettings,
+    ProjectTopicSetting,
+    User,
+)
 from tests.conftest import FakeBotApi
 
 _CHAT_ID = -100888
@@ -20,23 +26,30 @@ def _command_update(
     user_id: int = _ADMIN_TG_ID,
     username: str = _ADMIN_USERNAME,
     first_name: str = "Admin",
+    *,
+    is_forum: bool = False,
+    message_thread_id: int | None = None,
 ) -> dict:
-    return {
-        "update_id": update_id,
-        "message": {
-            "message_id": update_id,
-            "date": 1700000000,
-            "chat": {"id": chat_id, "type": "supergroup", "title": "Test Group"},
-            "from": {
-                "id": user_id,
-                "is_bot": False,
-                "first_name": first_name,
-                "username": username,
-            },
-            "text": f"/{command}",
-            "entities": [{"type": "bot_command", "offset": 0, "length": len(command) + 1}],
+    chat: dict = {"id": chat_id, "type": "supergroup", "title": "Test Group"}
+    if is_forum:
+        chat["is_forum"] = True
+    message: dict = {
+        "message_id": update_id,
+        "date": 1700000000,
+        "chat": chat,
+        "from": {
+            "id": user_id,
+            "is_bot": False,
+            "first_name": first_name,
+            "username": username,
         },
+        "text": f"/{command}",
+        "entities": [{"type": "bot_command", "offset": 0, "length": len(command) + 1}],
     }
+    if message_thread_id is not None:
+        message["message_thread_id"] = message_thread_id
+        message["is_topic_message"] = True
+    return {"update_id": update_id, "message": message}
 
 
 def _callback_update(
@@ -503,3 +516,222 @@ async def test_remove_member_stale_pick_shows_alert(
     )
 
     assert any("неактуально" in text for text in fake_bot_api.callback_answers)
+
+
+async def _assign_rights_topic(
+    session_factory: async_sessionmaker[AsyncSession], project_id: int, thread_id: int
+) -> None:
+    async with session_factory() as session:
+        session.add(
+            ProjectTopicSetting(
+                project_id=project_id, category=TopicCategory.RIGHTS, thread_id=thread_id
+            )
+        )
+        await session.commit()
+
+
+async def test_remove_admin_full_flow_demotes_admin(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    project = await _create_project(session_factory)
+    await _add_member(
+        session_factory,
+        project.id,
+        tg_user_id=_ADMIN_TG_ID,
+        username=_ADMIN_USERNAME,
+        role=MembershipRole.OWNER,
+    )
+    target = await _add_member(
+        session_factory,
+        project.id,
+        tg_user_id=2,
+        username="alice",
+        role=MembershipRole.ADMIN,
+    )
+
+    dispatcher = create_dispatcher(session_factory)
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_command_update("remove_admin"))
+    )
+    pick_data = _first_button_callback_data(fake_bot_api)
+    assert pick_data == f"dad:{target.id}"
+
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_callback_update(pick_data, update_id=2))
+    )
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(_callback_update(f"dac:{target.id}", update_id=3)),
+    )
+
+    async with session_factory() as session:
+        membership = await session.get(ProjectMembership, target.id)
+        assert membership is not None
+        assert membership.role == MembershipRole.MEMBER
+        assert membership.status == MembershipStatus.ACTIVE
+
+    assert "больше не администратор" in fake_bot_api.edited_texts[-1]
+
+
+async def test_remove_admin_rejects_non_owner_caller(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    project = await _create_project(session_factory)
+    await _add_member(
+        session_factory, project.id, tg_user_id=1, username="owner", role=MembershipRole.OWNER
+    )
+    await _add_member(
+        session_factory,
+        project.id,
+        tg_user_id=_ADMIN_TG_ID,
+        username=_ADMIN_USERNAME,
+        role=MembershipRole.ADMIN,
+    )
+
+    dispatcher = create_dispatcher(session_factory)
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_command_update("remove_admin"))
+    )
+
+    assert any("только главный администратор" in text for text in fake_bot_api.sent_texts)
+
+
+async def test_remove_admin_excludes_owner_and_members_from_list(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    project = await _create_project(session_factory)
+    owner = await _add_member(
+        session_factory,
+        project.id,
+        tg_user_id=_ADMIN_TG_ID,
+        username=_ADMIN_USERNAME,
+        role=MembershipRole.OWNER,
+    )
+    co_admin = await _add_member(
+        session_factory, project.id, tg_user_id=2, username="alice", role=MembershipRole.ADMIN
+    )
+    plain = await _add_member(session_factory, project.id, tg_user_id=3, username="bob")
+
+    dispatcher = create_dispatcher(session_factory)
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_command_update("remove_admin"))
+    )
+
+    message = fake_bot_api.sent_messages[-1]
+    assert message.reply_markup is not None
+    all_data = {
+        button.callback_data for row in message.reply_markup.inline_keyboard for button in row
+    }
+    assert all_data == {f"dad:{co_admin.id}"}
+    assert f"dad:{owner.id}" not in all_data
+    assert f"dad:{plain.id}" not in all_data
+
+
+async def test_remove_admin_without_co_admins_shows_hint(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    project = await _create_project(session_factory)
+    await _add_member(
+        session_factory,
+        project.id,
+        tg_user_id=_ADMIN_TG_ID,
+        username=_ADMIN_USERNAME,
+        role=MembershipRole.OWNER,
+    )
+
+    dispatcher = create_dispatcher(session_factory)
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_command_update("remove_admin"))
+    )
+
+    assert any("нет со-администраторов" in text for text in fake_bot_api.sent_texts)
+
+
+async def test_members_blocked_outside_rights_topic(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    project = await _create_project(session_factory)
+    await _add_member(
+        session_factory,
+        project.id,
+        tg_user_id=_ADMIN_TG_ID,
+        username=_ADMIN_USERNAME,
+        role=MembershipRole.ADMIN,
+    )
+    await _assign_rights_topic(session_factory, project.id, thread_id=7)
+
+    dispatcher = create_dispatcher(session_factory)
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(
+            _command_update("members", is_forum=True, message_thread_id=3)
+        ),
+    )
+
+    assert any("топика регулирования прав" in text for text in fake_bot_api.sent_texts)
+
+
+async def test_members_allowed_from_rights_topic(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    project = await _create_project(session_factory)
+    await _add_member(
+        session_factory,
+        project.id,
+        tg_user_id=_ADMIN_TG_ID,
+        username=_ADMIN_USERNAME,
+        role=MembershipRole.ADMIN,
+    )
+    await _assign_rights_topic(session_factory, project.id, thread_id=7)
+
+    dispatcher = create_dispatcher(session_factory)
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(
+            _command_update("members", is_forum=True, message_thread_id=7)
+        ),
+    )
+
+    assert any("Участники проекта" in text for text in fake_bot_api.sent_texts)
+
+
+async def test_remove_admin_blocked_outside_rights_topic(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    project = await _create_project(session_factory)
+    await _add_member(
+        session_factory,
+        project.id,
+        tg_user_id=_ADMIN_TG_ID,
+        username=_ADMIN_USERNAME,
+        role=MembershipRole.OWNER,
+    )
+    await _add_member(
+        session_factory, project.id, tg_user_id=2, username="alice", role=MembershipRole.ADMIN
+    )
+    await _assign_rights_topic(session_factory, project.id, thread_id=7)
+
+    dispatcher = create_dispatcher(session_factory)
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(
+            _command_update("remove_admin", is_forum=True, message_thread_id=3)
+        ),
+    )
+
+    assert any("топика регулирования прав" in text for text in fake_bot_api.sent_texts)
+    assert not fake_bot_api.posts

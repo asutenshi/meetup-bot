@@ -251,6 +251,160 @@ async def test_set_topic_with_invalid_category_lists_valid_ones(
     )
 
 
+async def test_set_topic_non_admin_without_category_is_rejected_by_role(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Порядок проверок: не-админ, вызвавший `/set_topic` без категории, должен
+    сразу получить отказ по правам, а не список категорий (техдолг из TASKS.md)."""
+    await _create_project_with_admin(session_factory)
+    dispatcher = create_dispatcher(session_factory)
+
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(
+            _set_topic_update(user_id=_MEMBER_ID, username="random_member", args="")
+        ),
+    )
+
+    assert fake_bot_api.sent_texts == [set_topic._NOT_ADMIN_TEXT]
+
+
+async def test_set_topic_rights_category_creates_setting(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    project = await _create_project_with_admin(session_factory)
+    dispatcher = create_dispatcher(session_factory)
+
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_set_topic_update(args="rights"))
+    )
+
+    async with session_factory() as session:
+        setting = await session.scalar(
+            select(ProjectTopicSetting).where(
+                ProjectTopicSetting.project_id == project.id,
+                ProjectTopicSetting.category == TopicCategory.RIGHTS,
+            )
+        )
+    assert setting is not None
+    assert setting.thread_id == 7
+
+
+def _unset_topic_update(
+    update_id: int = 1,
+    *,
+    chat_id: int = _CHAT_ID,
+    user_id: int = _ADMIN_ID,
+    username: str = "admin_user",
+    args: str = "events",
+    message_thread_id: int | None = None,
+) -> dict:
+    text = f"/unset_topic {args}".rstrip()
+    message: dict = {
+        "message_id": update_id,
+        "date": 1700000000,
+        "chat": {"id": chat_id, "type": "supergroup", "title": "Test Group", "is_forum": True},
+        "from": {"id": user_id, "is_bot": False, "first_name": "User", "username": username},
+        "text": text,
+        "entities": [{"type": "bot_command", "offset": 0, "length": len("/unset_topic")}],
+    }
+    if message_thread_id is not None:
+        message["message_thread_id"] = message_thread_id
+        message["is_topic_message"] = True
+    return {"update_id": update_id, "message": message}
+
+
+async def test_unset_topic_by_admin_removes_setting(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    project = await _create_project_with_admin(session_factory)
+    dispatcher = create_dispatcher(session_factory)
+
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_set_topic_update(1, args="events"))
+    )
+    # `/unset_topic` не требует вызова из отвязываемого топика — из другого места тоже.
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_unset_topic_update(2, args="events"))
+    )
+
+    async with session_factory() as session:
+        settings = (
+            await session.scalars(
+                select(ProjectTopicSetting).where(
+                    ProjectTopicSetting.project_id == project.id
+                )
+            )
+        ).all()
+    assert settings == []
+    assert "больше не привязаны" in fake_bot_api.sent_texts[-1]
+
+
+async def test_unset_topic_when_not_assigned_reports_noop(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _create_project_with_admin(session_factory)
+    dispatcher = create_dispatcher(session_factory)
+
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_unset_topic_update(args="rights"))
+    )
+
+    assert fake_bot_api.sent_texts == [set_topic._UNSET_NOT_ASSIGNED_TEXT]
+
+
+async def test_unset_topic_by_non_admin_is_rejected(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    project = await _create_project_with_admin(session_factory)
+    dispatcher = create_dispatcher(session_factory)
+
+    async with session_factory() as session:
+        session.add(
+            ProjectTopicSetting(
+                project_id=project.id, category=TopicCategory.EVENTS, thread_id=7
+            )
+        )
+        await session.commit()
+
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(
+            _unset_topic_update(user_id=_MEMBER_ID, username="random_member")
+        ),
+    )
+
+    async with session_factory() as session:
+        settings = (await session.scalars(select(ProjectTopicSetting))).all()
+    assert len(settings) == 1
+    assert fake_bot_api.sent_texts == [set_topic._NOT_ADMIN_TEXT]
+
+
+async def test_unset_topic_invalid_category_lists_valid_ones(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _create_project_with_admin(session_factory)
+    dispatcher = create_dispatcher(session_factory)
+
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_unset_topic_update(args="not_a_category"))
+    )
+
+    assert any("rights" in text for text in fake_bot_api.sent_texts)
+
+
 def test_texts_are_safe_for_default_html_parse_mode() -> None:
     # Бот создаётся с parse_mode=HTML по умолчанию (`bot/__init__.py`) — `<...>`
     # в тексте (например, плейсхолдер `<category>`) Telegram пытается
@@ -261,7 +415,9 @@ def test_texts_are_safe_for_default_html_parse_mode() -> None:
         set_topic._NOT_FORUM_TEXT,
         set_topic._OUTSIDE_TOPIC_TEXT,
         set_topic._INVALID_CATEGORY_TEXT,
+        set_topic._UNSET_NOT_ASSIGNED_TEXT,
         *set_topic._CONFIRMATION_TEXT.values(),
         *set_topic._ALREADY_ASSIGNED_TEXT.values(),
+        *set_topic._UNSET_CONFIRMATION_TEXT.values(),
     ]
     assert all("<" not in text for text in texts)

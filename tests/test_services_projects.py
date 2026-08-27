@@ -4,15 +4,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from meetup_bot.db.enums import MembershipRole, MembershipStatus, TopicCategory
 from meetup_bot.db.models import ProjectMembership, ProjectSettings
 from meetup_bot.services.projects import (
+    demote_to_member,
     ensure_membership,
     get_or_create_project,
     get_or_create_user,
     is_project_admin,
     is_project_owner,
+    is_rights_gate_satisfied,
     provision_project,
     remove_membership,
     resolve_thread_id,
     set_project_topic,
+    unset_project_topic,
 )
 
 
@@ -353,6 +356,101 @@ async def test_ensure_membership_reactivates_removed_member(session: AsyncSessio
     assert reactivated.status == MembershipStatus.ACTIVE
     assert reactivated.removed_at is None
     assert reactivated.removed_by is None
+
+
+async def test_unset_project_topic_removes_row_then_noop(session: AsyncSession) -> None:
+    project, _ = await get_or_create_project(session, tg_chat_id=-100, name="Friends")
+    await set_project_topic(
+        session, project_id=project.id, category=TopicCategory.RIGHTS, thread_id=7
+    )
+    await session.commit()
+
+    first = await unset_project_topic(
+        session, project_id=project.id, category=TopicCategory.RIGHTS
+    )
+    await session.commit()
+    second = await unset_project_topic(
+        session, project_id=project.id, category=TopicCategory.RIGHTS
+    )
+
+    assert first is True
+    assert second is False
+    assert (
+        await resolve_thread_id(
+            session, project_id=project.id, category=TopicCategory.RIGHTS
+        )
+        is None
+    )
+
+
+async def test_rights_gate_satisfied_without_topic_setting(session: AsyncSession) -> None:
+    project, _ = await get_or_create_project(session, tg_chat_id=-100, name="Friends")
+    await session.commit()
+
+    # Топик `rights` не назначен → гейт не действует, команда работает откуда угодно.
+    assert (
+        await is_rights_gate_satisfied(
+            session, project_id=project.id, chat_is_forum=True, message_thread_id=42
+        )
+        is True
+    )
+
+
+async def test_rights_gate_ignored_in_non_forum_chat(session: AsyncSession) -> None:
+    project, _ = await get_or_create_project(session, tg_chat_id=-100, name="Friends")
+    await set_project_topic(
+        session, project_id=project.id, category=TopicCategory.RIGHTS, thread_id=7
+    )
+    await session.commit()
+
+    assert (
+        await is_rights_gate_satisfied(
+            session, project_id=project.id, chat_is_forum=False, message_thread_id=None
+        )
+        is True
+    )
+
+
+async def test_rights_gate_enforces_assigned_topic(session: AsyncSession) -> None:
+    project, _ = await get_or_create_project(session, tg_chat_id=-100, name="Friends")
+    await set_project_topic(
+        session, project_id=project.id, category=TopicCategory.RIGHTS, thread_id=7
+    )
+    await session.commit()
+
+    assert (
+        await is_rights_gate_satisfied(
+            session, project_id=project.id, chat_is_forum=True, message_thread_id=7
+        )
+        is True
+    )
+    assert (
+        await is_rights_gate_satisfied(
+            session, project_id=project.id, chat_is_forum=True, message_thread_id=3
+        )
+        is False
+    )
+    assert (
+        await is_rights_gate_satisfied(
+            session, project_id=project.id, chat_is_forum=True, message_thread_id=None
+        )
+        is False
+    )
+
+
+async def test_demote_to_member_strips_admin_role(session: AsyncSession) -> None:
+    project, _ = await get_or_create_project(session, tg_chat_id=-100, name="Friends")
+    user = await get_or_create_user(
+        session, tg_user_id=1, username="admin", first_name="Admin", last_name=None
+    )
+    membership, _ = await ensure_membership(
+        session, project_id=project.id, user_id=user.id, role=MembershipRole.ADMIN
+    )
+    await session.commit()
+
+    demote_to_member(membership)
+
+    assert membership.role == MembershipRole.MEMBER
 
 
 async def test_ensure_membership_reactivation_resets_role_to_argument(
