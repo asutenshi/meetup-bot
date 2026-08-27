@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 meetup-bot = "meetup_bot:main"
+meetup-bot-worker = "meetup_bot:worker_main"
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
@@ -44,6 +45,11 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+[[tool.mypy.overrides]]
+# APScheduler 3.x не поставляет py.typed / стабов.
+module = "apscheduler.*"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

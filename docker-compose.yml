@@ -23,5 +23,17 @@ services:
       postgres:
         condition: service_healthy
 
+  # Тот же образ, режим worker (TZ §3.1): APScheduler-проход напоминаний
+  # раз в WORKER_POLL_INTERVAL_MINUTES. Отдельный контейнер, чтобы падение
+  # долгого cron-цикла не роняло приём апдейтов ботом, и наоборот.
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    command: ["meetup-bot-worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:

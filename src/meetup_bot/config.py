@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     # Максимальный возраст `auth_date` в Telegram Web App `initData`, секунды.
     # Старше — запрос отклоняется как возможный replay (TZ §3.2). Сутки.
     webapp_init_data_max_age: int = 86400
+    # Интервал периодического прохода worker-процесса напоминаний, минуты
+    # (TZ §3.4: точность до минуты не нужна, рекомендация 15–30 мин). См.
+    # meetup_bot.scheduler.
+    worker_poll_interval_minutes: int = 20
 
 
 @lru_cache
