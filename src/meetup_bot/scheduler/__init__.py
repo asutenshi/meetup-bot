@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from meetup_bot.config import Settings
 from meetup_bot.scheduler.absence_reminder import remind_absent_members
 from meetup_bot.scheduler.attendance import finalize_attendance
+from meetup_bot.scheduler.escalation import escalate_missed_events
 
 logger = logging.getLogger("meetup_bot.scheduler")
 
@@ -41,6 +42,7 @@ SchedulerPass = Callable[[AsyncSession, Bot | None], Awaitable[None]]
 _PASSES: list[SchedulerPass] = [
     finalize_attendance,  # 4.2 — финализация явки по списку RSVP (TZ §3.4, п.1)
     remind_absent_members,  # 4.3 — личное напоминание «давно не виделись» (TZ §3.4, п.2)
+    escalate_missed_events,  # 4.4 — эскалация организатору/админу (TZ §3.4, п.3)
 ]
 
 

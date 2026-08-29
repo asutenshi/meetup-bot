@@ -139,6 +139,11 @@ class ProjectMembership(Base):
     # Троттлинг личных напоминаний «давно не виделись» (TZ §3.4 п.2): не чаще
     # одного напоминания в день на участника. Проставляется worker'ом.
     last_reminder_sent_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
+    # Троттлинг эскалации организатору/админу (TZ §3.4 п.3): не чаще одной
+    # эскалации в неделю на пару участник—проект. Проставляется worker'ом.
+    last_escalation_sent_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
 
     project: Mapped["Project"] = relationship(
         back_populates="memberships", foreign_keys=[project_id]
