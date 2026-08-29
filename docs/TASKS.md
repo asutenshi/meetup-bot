@@ -78,7 +78,7 @@
 - [x] **2.4 Модели `Event`, `EventCoOrganizer`, `EventRSVP` + миграция.**
       Включая `Event.ends_at`, `Event.attendance_finalized_at`,
       `EventRSVP.updated_by`. (TZ §2.6–2.8)
-- [ ] **2.5 Форма создания мероприятия + `POST /api/events`.** Поля из TZ §4.3
+- [x] **2.5 Форма создания мероприятия + `POST /api/events`.** Поля из TZ §4.3
       п.2 (в т.ч. опциональный `ends_at`, со-организаторы — от нуля и больше,
       создатель может снять чекбокс и с себя), создание `Event`+
       `EventCoOrganizer`, публикация анонса в топик категории `events` с

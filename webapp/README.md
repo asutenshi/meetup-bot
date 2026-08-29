@@ -6,9 +6,19 @@
 
 Каркас (TASKS.md 2.1) + вход из лички (2.2): команда `/new_event` присылает
 `web_app`-кнопку с `?project=<invite_payload>` в URL, фронт читает этот контекст
-(`getProjectContext`) и подставляет его в `apiFetch`. Реальные экраны (форма
-создания мероприятия и т.д.) — задачи 2.5+. Визуальный язык (карточки-секции,
-токены, сменяемый акцент) — [`../docs/WEBAPP_DESIGN.md`](../docs/WEBAPP_DESIGN.md).
+(`getProjectContext`) и подставляет его в `apiFetch`. Визуальный язык
+(карточки-секции, токены, сменяемый акцент) —
+[`../docs/WEBAPP_DESIGN.md`](../docs/WEBAPP_DESIGN.md).
+
+Экраны:
+
+- **Форма создания мероприятия** (TASKS.md 2.5) — `src/event-form/`. Своя
+  мини-библиотека компонентов (`Card`/`Field`/`PeopleList`, `components.tsx` +
+  `form.css`) поверх токенов, без `telegram-ui` кроме `AppRoot`. Загружает
+  `GET /api/events/context` (название проекта + участники для со-организаторов),
+  шлёт `POST /api/events`. `App.tsx` показывает форму, если есть `initData` и
+  `?project`; иначе — экран-подсказка. Роутинг между экранами и домашний
+  хаб — задача 2.9.
 
 ## Команды
 
@@ -57,7 +67,9 @@ API v3.3 **не** дословно совпадает с `@telegram-apps/sdk`:
   `themeParams.isDark()`/`isMounted()`/`state.sub()` — без изменений.
 
 Поверхность SDK — 3 файла (`src/api/client.ts`, `src/telegram/init.ts`,
-`src/theme/applyThemeParams.ts`).
+`src/theme/applyThemeParams.ts`). `init.ts` дополнительно монтирует `miniApp`,
+зовёт `miniApp.ready()` (снять нативный лоадер) и `closeMiniApp()` (кнопка
+«Закрыть» на экране успеха формы).
 
 ## Известные ограничения
 
