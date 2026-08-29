@@ -6,6 +6,7 @@ loop живым. Регистрируется как консольный скр
 import asyncio
 import logging
 
+from meetup_bot.bot import create_bot
 from meetup_bot.config import get_settings
 from meetup_bot.db.session import create_engine, create_session_factory
 from meetup_bot.scheduler import create_scheduler
@@ -17,7 +18,10 @@ async def _serve() -> None:
     settings = get_settings()
     engine = create_engine(settings)
     session_factory = create_session_factory(engine)
-    scheduler = create_scheduler(session_factory, settings)
+    # Один инстанс на весь worker: рассылающие шаги прохода (личные напоминания,
+    # эскалация — TZ §3.4, п.2–3) шлют сообщения от имени бота.
+    bot = create_bot(settings)
+    scheduler = create_scheduler(session_factory, settings, bot)
     scheduler.start()
     logger.info(
         "worker запущен: проход напоминаний каждые %d мин",
@@ -29,6 +33,7 @@ async def _serve() -> None:
         await asyncio.Event().wait()
     finally:
         scheduler.shutdown(wait=False)
+        await bot.session.close()
         await engine.dispose()
 
 

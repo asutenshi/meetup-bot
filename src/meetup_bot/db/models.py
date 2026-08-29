@@ -89,6 +89,10 @@ class ProjectSettings(Base):
     timezone: Mapped[str] = mapped_column(
         String, default="Europe/Moscow", server_default="Europe/Moscow"
     )
+    # Час локального времени проекта (`timezone`), в который worker рассылает
+    # личные напоминания и эскалации (TZ §2.3, §3.4 п.2–3) — чтобы уведомления
+    # не приходили ночью. Финализации явки (п.1) не касается.
+    reminder_send_hour: Mapped[int] = mapped_column(Integer, default=20, server_default="20")
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -132,6 +136,9 @@ class ProjectMembership(Base):
     removed_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
     last_attended_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
     consecutive_missed_events: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Троттлинг личных напоминаний «давно не виделись» (TZ §3.4 п.2): не чаще
+    # одного напоминания в день на участника. Проставляется worker'ом.
+    last_reminder_sent_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
 
     project: Mapped["Project"] = relationship(
         back_populates="memberships", foreign_keys=[project_id]

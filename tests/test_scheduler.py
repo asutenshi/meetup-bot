@@ -3,6 +3,7 @@ import logging
 from datetime import timedelta
 
 import pytest
+from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from meetup_bot import worker_main
@@ -59,7 +60,7 @@ async def test_run_scheduler_pass_runs_registered_steps(
 ) -> None:
     seen: list[AsyncSession] = []
 
-    async def _step(session: AsyncSession) -> None:
+    async def _step(session: AsyncSession, bot: Bot | None) -> None:
         seen.append(session)
 
     monkeypatch.setattr("meetup_bot.scheduler._PASSES", [_step])
@@ -77,11 +78,11 @@ async def test_run_scheduler_pass_isolates_failing_step(
 ) -> None:
     ran: list[str] = []
 
-    async def _boom(session: AsyncSession) -> None:
+    async def _boom(session: AsyncSession, bot: Bot | None) -> None:
         ran.append("boom")
         raise RuntimeError("boom")
 
-    async def _ok(session: AsyncSession) -> None:
+    async def _ok(session: AsyncSession, bot: Bot | None) -> None:
         ran.append("ok")
 
     monkeypatch.setattr("meetup_bot.scheduler._PASSES", [_boom, _ok])
@@ -99,7 +100,9 @@ async def test_scheduler_fires_pass_on_start(
 ) -> None:
     fired = asyncio.Event()
 
-    async def _fake_pass(sf: async_sessionmaker[AsyncSession]) -> None:
+    async def _fake_pass(
+        sf: async_sessionmaker[AsyncSession], bot: Bot | None = None
+    ) -> None:
         assert sf is session_factory
         fired.set()
 
