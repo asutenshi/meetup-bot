@@ -1,6 +1,6 @@
 from html import escape
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meetup_bot.db.enums import MembershipRole, MembershipStatus
 from meetup_bot.db.models import Project, ProjectMembership, User
+from meetup_bot.services.event_announcement import refresh_member_announcements
 from meetup_bot.services.projects import (
     demote_to_member,
     is_project_admin,
@@ -213,7 +214,9 @@ def create_router() -> Router:
         await callback.answer()
 
     @router.callback_query(F.data.startswith(f"{_REMOVE_CONFIRM_PREFIX}:"))
-    async def on_remove_confirm(callback: CallbackQuery, session: AsyncSession) -> None:
+    async def on_remove_confirm(
+        callback: CallbackQuery, session: AsyncSession, bot: Bot
+    ) -> None:
         if callback.data is None or callback.message is None or callback.from_user is None:
             return
 
@@ -233,8 +236,14 @@ def create_router() -> Router:
 
         user = await session.get(User, membership.user_id)
         assert user is not None
+        project_id = membership.project_id
         await remove_membership(
             session, membership=membership, removed_by_tg_user_id=callback.from_user.id
+        )
+        # Убрать удалённого из списка «Участвует» во всех активных анонсах —
+        # иначе он висит там (кнопки уже недоступны) до следующего чужого нажатия.
+        await refresh_member_announcements(
+            bot, session, project_id=project_id, user_id=user.id
         )
         await session.commit()
 

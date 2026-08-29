@@ -1,11 +1,15 @@
+import datetime
+
 from aiogram import Bot
 from aiogram.types import Update
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from meetup_bot.bot import create_dispatcher
-from meetup_bot.db.enums import MembershipRole, MembershipStatus, TopicCategory
+from meetup_bot.db.enums import MembershipRole, MembershipStatus, RSVPStatus, TopicCategory
 from meetup_bot.db.models import (
+    Event,
+    EventRSVP,
     Project,
     ProjectMembership,
     ProjectSettings,
@@ -265,6 +269,62 @@ async def test_remove_member_full_flow_removes_membership(
         assert membership.removed_by == admin.id  # type: ignore[union-attr]
 
     assert "удалён" in fake_bot_api.edited_texts[-1]
+
+
+async def test_remove_member_drops_person_from_event_announcement(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    project = await _create_project(session_factory)
+    await _add_member(
+        session_factory,
+        project.id,
+        tg_user_id=_ADMIN_TG_ID,
+        username=_ADMIN_USERNAME,
+        role=MembershipRole.ADMIN,
+    )
+    target = await _add_member(
+        session_factory, project.id, tg_user_id=2, username="alice", first_name="Alice"
+    )
+
+    async with session_factory() as session:
+        event = Event(
+            project_id=project.id,
+            description="Прогулка",
+            starts_at=datetime.datetime(2026, 9, 14, 15, 0, tzinfo=datetime.UTC),
+            location="Парк",
+            created_by=target.user_id,
+            announcement_message_id=4321,
+        )
+        session.add(event)
+        await session.flush()
+        session.add(
+            EventRSVP(
+                event_id=event.id,
+                user_id=target.user_id,
+                status=RSVPStatus.GOING,
+                updated_by=target.user_id,
+            )
+        )
+        await session.commit()
+
+    dispatcher = create_dispatcher(session_factory)
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_command_update("remove_member"))
+    )
+    pick_data = _callback_data_for_membership(fake_bot_api, target.id)
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_callback_update(pick_data, update_id=2))
+    )
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_callback_update(f"rmc:{target.id}", update_id=3))
+    )
+
+    announcement_edits = [m for m in fake_bot_api.edited_messages if m.message_id == 4321]
+    assert announcement_edits, "анонс мероприятия должен быть перерисован"
+    assert "✅ Участвует: 0" in (announcement_edits[-1].text or "")
+    assert "alice" not in (announcement_edits[-1].text or "")
 
 
 async def test_remove_member_cancel_keeps_membership_active(

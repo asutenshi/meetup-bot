@@ -2,8 +2,8 @@
 
 Анонс уходит в топик категории `events` (`resolve_thread_id`), под ним — две
 inline-кнопки «✅ Участвую» / «❌ Не участвую». `callback_data` кнопок —
-`rsvp:<event_id>:<going|not_going>`; сам хендлер нажатий и живое обновление
-текста — задача 2.6, здесь только первичная публикация.
+`rsvp:<event_id>:<going|not_going>`. Хендлер нажатий — `bot/handlers/rsvp.py`
+(задача 2.6); живое обновление текста при каждом нажатии — `refresh_event_announcement`.
 """
 
 from __future__ import annotations
@@ -14,14 +14,26 @@ from html import escape
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from meetup_bot.db.enums import RSVPStatus, TopicCategory
-from meetup_bot.db.models import Event, User
+from meetup_bot.db.enums import EventStatus, MembershipStatus, RSVPStatus, TopicCategory
+from meetup_bot.db.models import (
+    Event,
+    EventCoOrganizer,
+    EventRSVP,
+    Project,
+    ProjectMembership,
+    ProjectSettings,
+    User,
+)
 from meetup_bot.services.projects import resolve_thread_id
 
 RSVP_CALLBACK_PREFIX = "rsvp"
+
+DEFAULT_TIMEZONE = "Europe/Moscow"
 
 _MONTHS_GENITIVE = (
     "января", "февраля", "марта", "апреля", "мая", "июня",
@@ -116,8 +128,7 @@ def build_announcement_text(
         lines.append(f"✅ Участвует: {len(going)}/{event.seats_limit}")
     else:
         lines.append(f"✅ Участвует: {len(going)}")
-    if going:
-        lines.append(", ".join(_mention(u) for u in going))
+    lines.extend(f"{i}. {_mention(u)}" for i, u in enumerate(going, start=1))
 
     return "\n".join(lines)
 
@@ -146,3 +157,106 @@ async def publish_event_announcement(
         reply_markup=build_rsvp_keyboard(event.id),
     )
     return message.message_id
+
+
+async def _announcement_participants(
+    session: AsyncSession, event: Event
+) -> tuple[list[User], list[User]]:
+    """`(co_organizers, going)` для перерисовки анонса: со-организаторы в порядке
+    добавления, подтвердившие — в порядке ответа (кто раньше нажал «Участвую»).
+
+    В обоих списках — только активные участники проекта: удалённый через
+    `/remove_member` человек пропадает из анонса при ближайшей перерисовке
+    (а `refresh_member_announcements` вызывает её сразу после удаления)."""
+    active_member = (
+        (ProjectMembership.user_id == User.id)
+        & (ProjectMembership.project_id == event.project_id)
+        & (ProjectMembership.status == MembershipStatus.ACTIVE)
+    )
+    co_organizers = list(
+        await session.scalars(
+            select(User)
+            .join(EventCoOrganizer, EventCoOrganizer.user_id == User.id)
+            .join(ProjectMembership, active_member)
+            .where(EventCoOrganizer.event_id == event.id)
+            .order_by(EventCoOrganizer.id)
+        )
+    )
+    going = list(
+        await session.scalars(
+            select(User)
+            .join(EventRSVP, EventRSVP.user_id == User.id)
+            .join(ProjectMembership, active_member)
+            .where(
+                EventRSVP.event_id == event.id,
+                EventRSVP.status == RSVPStatus.GOING,
+            )
+            .order_by(EventRSVP.responded_at, EventRSVP.id)
+        )
+    )
+    return co_organizers, going
+
+
+async def refresh_member_announcements(
+    bot: Bot, session: AsyncSession, *, project_id: int, user_id: int
+) -> None:
+    """Перерисовывает анонсы всех ещё не финализированных мероприятий проекта,
+    где `user_id` значится подтвердившим (`EventRSVP.status = going`). Нужно после
+    удаления участника из проекта (`/remove_member`), чтобы он сразу пропал из
+    списка «Участвует», а не висел там до следующего чужого нажатия.
+
+    Ошибку Bot API по конкретному анонсу (сообщение удалили, бот потерял права)
+    глотаем — удаление участника не должно падать из-за неправимого анонса."""
+    events = await session.scalars(
+        select(Event)
+        .join(EventRSVP, EventRSVP.event_id == Event.id)
+        .where(
+            Event.project_id == project_id,
+            Event.status == EventStatus.PLANNED,
+            Event.attendance_finalized_at.is_(None),
+            EventRSVP.user_id == user_id,
+            EventRSVP.status == RSVPStatus.GOING,
+        )
+    )
+    for event in events:
+        try:
+            await refresh_event_announcement(bot, session, event)
+        except TelegramAPIError:
+            continue
+
+
+async def refresh_event_announcement(
+    bot: Bot, session: AsyncSession, event: Event
+) -> None:
+    """Живое обновление анонса (`editMessageText` по `announcement_message_id`,
+    TZ §4.3 «RSVP»): пересчитывает счётчик подтвердивших и список их никнеймов.
+    Используется хендлером RSVP (задача 2.6); в дальнейшем — редактированием/
+    отменой мероприятия (2.7–2.8) и постфактум-корректировкой RSVP (3.2).
+
+    No-op, если анонс не публиковался (`announcement_message_id is None`).
+    `TelegramBadRequest` «message is not modified» гасится — параллельное
+    нажатие могло уже привести анонс в то же состояние.
+    """
+    if event.announcement_message_id is None:
+        return
+
+    project = await session.get(Project, event.project_id)
+    if project is None:
+        return
+    settings = await session.get(ProjectSettings, event.project_id)
+    timezone = settings.timezone if settings is not None else DEFAULT_TIMEZONE
+
+    co_organizers, going = await _announcement_participants(session, event)
+    text = build_announcement_text(
+        event, co_organizers=co_organizers, going=going, timezone=timezone
+    )
+    try:
+        await bot.edit_message_text(
+            text=text,
+            chat_id=project.tg_chat_id,
+            message_id=event.announcement_message_id,
+            reply_markup=build_rsvp_keyboard(event.id),
+        )
+    except TelegramBadRequest as exc:
+        if "not modified" not in str(exc).lower():
+            raise
