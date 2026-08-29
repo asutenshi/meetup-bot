@@ -5,9 +5,9 @@
 контейнером из того же образа (`docker-compose.yml`, сервис `worker`), чтобы
 падение долгого cron-цикла не роняло приём сообщений бота, и наоборот.
 
-Сам проход (`run_scheduler_pass`) — пока пустой каркас: три независимых джобы из
-TZ §3.4 (финализация явки, личное напоминание «давно не виделись», эскалация
-организатору/админу) добавляются в задачах 4.2–4.4 как элементы `_PASSES`.
+Сам проход (`run_scheduler_pass`) прогоняет по очереди независимые джобы из
+TZ §3.4 (финализация явки — задача 4.2; личное напоминание «давно не виделись» и
+эскалация организатору/админу — задачи 4.3–4.4) как элементы `_PASSES`.
 Точка входа процесса — `meetup_bot.scheduler.runner`.
 """
 
@@ -20,6 +20,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from meetup_bot.config import Settings
+from meetup_bot.scheduler.attendance import finalize_attendance
 
 logger = logging.getLogger("meetup_bot.scheduler")
 
@@ -31,7 +32,9 @@ PASS_JOB_ID = "reminders-pass"
 # транзакции: ошибка одного шага логируется и не отменяет остальные. Список
 # наполняется в задачах 4.2–4.4.
 SchedulerPass = Callable[[AsyncSession], Awaitable[None]]
-_PASSES: list[SchedulerPass] = []
+_PASSES: list[SchedulerPass] = [
+    finalize_attendance,  # 4.2 — финализация явки по списку RSVP (TZ §3.4, п.1)
+]
 
 
 async def run_scheduler_pass(session_factory: async_sessionmaker[AsyncSession]) -> None:

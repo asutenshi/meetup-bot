@@ -130,17 +130,22 @@
       APScheduler, периодический проход (15–30 мин), второй сервис в
       `docker-compose.yml` из того же образа. (TZ §1.2 таблица «Планировщик»;
       §3.1 п.1)
-- [ ] **4.2 Джоба: финализация явки по списку RSVP.** В полночь следующего
+- [x] **4.2 Джоба: финализация явки по списку RSVP.** В полночь следующего
       дня после `ends_at`/`starts_at` (таймзона проекта) — факт явки из
       текущего `EventRSVP`, сброс `last_attended_at`/`consecutive_missed_events`,
       простановка `Event.attendance_finalized_at`. (TZ §3.4 п.1)
 - [ ] **4.3 Джоба: личное напоминание участнику «давно не виделись».**
-      Троттлинг раз в день. (TZ §3.4 п.2)
+      Троттлинг раз в день. Рассылка — только в час
+      `ProjectSettings.reminder_send_hour` (default 20) по таймзоне проекта;
+      в этой же задаче добавить поле + миграцию (по аналогии с
+      `a407b48ed209_project_settings_all_command_throttle.py`). (TZ §3.4 п.2;
+      §2.3)
 - [ ] **4.4 Джоба: эскалация организатору/админу.** Троттлинг раз в период.
+      Рассылка — в тот же час `ProjectSettings.reminder_send_hour`, что и 4.3.
       (TZ §3.4 п.3)
 - [ ] **4.5 Настройка порогов `ProjectSettings`.** Минимальный UI/команды для
       админа (`reminder_days_threshold`, `missed_events_escalation_count`,
-      `timezone`). (TZ §2.3; roadmap §7 Этап 4)
+      `timezone`, `reminder_send_hour`). (TZ §2.3; roadmap §7 Этап 4)
 
 ## Этап 5. Полировка
 
