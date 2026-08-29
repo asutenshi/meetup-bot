@@ -125,6 +125,11 @@ textarea.ef-input {
   color: var(--tg-hint);
 }
 
+.ef-hint--lead {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+
 .ef-people {
   display: flex;
   flex-direction: column;

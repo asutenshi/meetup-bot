@@ -14,10 +14,17 @@ from urllib.parse import urlencode
 _WEBAPP_PATH = "/app/"
 
 
-def build_web_app_url(public_base_url: str, *, project_payload: str) -> str:
+def build_web_app_url(
+    public_base_url: str, *, project_payload: str, event_id: int | None = None
+) -> str:
     """`{public_base_url}/app/?project=<invite_payload>` — URL для
     `WebAppInfo(url=...)` inline-кнопки, открывающей форму Mini App в контексте
-    конкретного проекта."""
+    конкретного проекта.
+
+    `event_id` задан (кнопка из `/edit_event`) → добавляется `&event=<id>`, и
+    фронтенд открывает форму редактирования этого мероприятия вместо создания."""
     base = public_base_url.rstrip("/")
-    query = urlencode({"project": project_payload})
-    return f"{base}{_WEBAPP_PATH}?{query}"
+    params: dict[str, str | int] = {"project": project_payload}
+    if event_id is not None:
+        params["event"] = event_id
+    return f"{base}{_WEBAPP_PATH}?{urlencode(params)}"

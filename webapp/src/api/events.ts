@@ -5,6 +5,10 @@ export type EventFormContext = components['schemas']['EventFormContext'];
 export type EventFormMember = components['schemas']['EventFormMember'];
 export type CreateEventRequest = components['schemas']['CreateEventRequest'];
 export type CreateEventResponse = components['schemas']['CreateEventResponse'];
+export type EditEventContext = components['schemas']['EditEventContext'];
+export type EventFormData = components['schemas']['EventFormData'];
+export type UpdateEventRequest = components['schemas']['UpdateEventRequest'];
+export type UpdateEventResponse = components['schemas']['UpdateEventResponse'];
 
 /** Ошибка ответа бэкенда: `status` + машиночитаемый `detail` (TZ §3.2). */
 export class ApiError extends Error {
@@ -59,4 +63,31 @@ export async function createEvent(
     throw await readError(response);
   }
   return (await response.json()) as CreateEventResponse;
+}
+
+/** Поля мероприятия для предзаполнения формы редактирования (GET /api/events/{id}). */
+export async function fetchEditEventContext(
+  eventId: number,
+): Promise<EditEventContext> {
+  const response = await apiFetch(`/events/${eventId}`);
+  if (!response.ok) {
+    throw await readError(response);
+  }
+  return (await response.json()) as EditEventContext;
+}
+
+/** Сохранение изменений, обновление анонса и уведомление подтвердивших (PUT /api/events/{id}). */
+export async function updateEvent(
+  eventId: number,
+  body: UpdateEventRequest,
+): Promise<UpdateEventResponse> {
+  const response = await apiFetch(`/events/${eventId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw await readError(response);
+  }
+  return (await response.json()) as UpdateEventResponse;
 }

@@ -3,18 +3,27 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ApiError,
   createEvent,
+  fetchEditEventContext,
   fetchEventFormContext,
+  updateEvent,
   type CreateEventRequest,
-  type EventFormContext,
+  type EventFormMember,
 } from '../api/events';
 import { closeMiniApp } from '../telegram/init';
 import { Card, Field, PeopleList } from './components';
 import './form.css';
 
+type Loaded = {
+  members: EventFormMember[];
+  projectName: string;
+};
+
 type LoadState =
   | { kind: 'loading' }
-  | { kind: 'ready'; context: EventFormContext }
+  | { kind: 'ready'; data: Loaded }
   | { kind: 'not-registered' }
+  | { kind: 'no-access' }
+  | { kind: 'not-editable' }
   | { kind: 'load-error'; detail: string };
 
 type Errors = Partial<
@@ -26,12 +35,23 @@ function toIso(value: string): string {
   return new Date(value).toISOString();
 }
 
+/** ISO-строка → значение `datetime-local` в зоне устройства (для предзаполнения). */
+function toLocalInput(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  );
+}
+
 /** «1250,5» → «1250.5»: запятую как десятичный разделитель приводим к точке. */
 function normalizeNumber(value: string): string {
   return value.trim().replace(',', '.');
 }
 
-export function EventForm() {
+export function EventForm({ eventId }: { eventId: number | null }) {
+  const editing = eventId !== null;
   const [load, setLoad] = useState<LoadState>({ kind: 'loading' });
 
   const [startsAt, setStartsAt] = useState('');
@@ -45,34 +65,68 @@ export function EventForm() {
   const [errors, setErrors] = useState<Errors>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState<{ notified: number } | null>(null);
 
   useEffect(() => {
     let alive = true;
-    fetchEventFormContext()
-      .then((context) => {
-        if (!alive) return;
-        setLoad({ kind: 'ready', context });
-        setCoOrganizers(
-          new Set(context.members.filter((m) => m.is_self).map((m) => m.user_id)),
+
+    function fail(error: unknown): void {
+      if (!alive) return;
+      if (error instanceof ApiError && error.status === 403) {
+        setLoad(
+          error.detail === 'not_registered'
+            ? { kind: 'not-registered' }
+            : { kind: 'no-access' },
         );
-      })
-      .catch((error: unknown) => {
-        if (!alive) return;
-        if (error instanceof ApiError && error.status === 403) {
-          setLoad({ kind: 'not-registered' });
-        } else {
-          const detail = error instanceof ApiError ? error.detail : 'network';
-          setLoad({ kind: 'load-error', detail });
-        }
-      });
+      } else if (error instanceof ApiError && (error.status === 404 || error.status === 409)) {
+        setLoad({ kind: 'not-editable' });
+      } else {
+        const detail = error instanceof ApiError ? error.detail : 'network';
+        setLoad({ kind: 'load-error', detail });
+      }
+    }
+
+    if (eventId !== null) {
+      fetchEditEventContext(eventId)
+        .then((context) => {
+          if (!alive) return;
+          setLoad({
+            kind: 'ready',
+            data: { members: context.members, projectName: context.project_name },
+          });
+          setStartsAt(toLocalInput(context.event.starts_at));
+          setEndsAt(context.event.ends_at ? toLocalInput(context.event.ends_at) : '');
+          setLocation(context.event.location);
+          setDescription(context.event.description);
+          setBudget(context.event.budget_per_person ?? '');
+          setSeats(
+            context.event.seats_limit !== null ? String(context.event.seats_limit) : '',
+          );
+          setCoOrganizers(new Set(context.event.co_organizer_user_ids));
+        })
+        .catch(fail);
+    } else {
+      fetchEventFormContext()
+        .then((context) => {
+          if (!alive) return;
+          setLoad({
+            kind: 'ready',
+            data: { members: context.members, projectName: context.project_name },
+          });
+          setCoOrganizers(
+            new Set(context.members.filter((m) => m.is_self).map((m) => m.user_id)),
+          );
+        })
+        .catch(fail);
+    }
+
     return () => {
       alive = false;
     };
-  }, []);
+  }, [eventId]);
 
   const members = useMemo(
-    () => (load.kind === 'ready' ? load.context.members : []),
+    () => (load.kind === 'ready' ? load.data.members : []),
     [load],
   );
 
@@ -84,6 +138,22 @@ export function EventForm() {
       <CenteredState
         title="Вы не участник этого проекта"
         text="Зарегистрируйтесь по ссылке из поста регистрации в вашем групповом чате, потом откройте форму заново."
+      />
+    );
+  }
+  if (load.kind === 'no-access') {
+    return (
+      <CenteredState
+        title="Нет доступа к редактированию"
+        text="Форму открывают организаторы мероприятия, а если организатор не назначен — создатель и админы проекта."
+      />
+    );
+  }
+  if (load.kind === 'not-editable') {
+    return (
+      <CenteredState
+        title="Мероприятие нельзя изменить"
+        text="Оно отменено, уже прошло или удалено. Откройте список заново через /edit_event."
       />
     );
   }
@@ -99,8 +169,14 @@ export function EventForm() {
     return (
       <CenteredState
         badge="✅"
-        title="Анонс опубликован"
-        text="Мероприятие создано, анонс с кнопками «Участвую» / «Не участвую» отправлен в чат проекта."
+        title={editing ? 'Изменения сохранены' : 'Анонс опубликован'}
+        text={
+          editing
+            ? done.notified > 0
+              ? `Анонс в чате обновлён, уведомления об изменениях получили ${done.notified} чел.`
+              : 'Анонс в чате обновлён.'
+            : 'Мероприятие создано, анонс с кнопками «Участвую» / «Не участвую» отправлен в чат проекта.'
+        }
         action={{ label: 'Закрыть', onClick: closeMiniApp }}
       />
     );
@@ -143,16 +219,23 @@ export function EventForm() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await createEvent(body);
-      setDone(true);
+      if (eventId !== null) {
+        const result = await updateEvent(eventId, body);
+        setDone({ notified: result.notified_going });
+      } else {
+        await createEvent(body);
+        setDone({ notified: 0 });
+      }
     } catch (error: unknown) {
       if (error instanceof ApiError && error.status === 401) {
         setSubmitError('Сессия устарела — переоткройте Mini App.');
       } else if (error instanceof ApiError && error.status === 403) {
-        setSubmitError('Нет прав на создание мероприятия в этом проекте.');
+        setSubmitError('Нет прав на изменение этого мероприятия.');
+      } else if (error instanceof ApiError && (error.status === 404 || error.status === 409)) {
+        setSubmitError('Мероприятие уже нельзя изменить — отменено или прошло.');
       } else {
         const detail = error instanceof ApiError ? error.detail : 'network';
-        setSubmitError(`Не удалось опубликовать. Код: ${detail}`);
+        setSubmitError(`Не удалось сохранить. Код: ${detail}`);
       }
     } finally {
       setSubmitting(false);
@@ -174,6 +257,13 @@ export function EventForm() {
   return (
     <div className="ef-screen">
       <div className="ef-scroll">
+        {editing && (
+          <p className="ef-hint ef-hint--lead">
+            Редактирование мероприятия проекта «{load.data.projectName}». После сохранения
+            анонс в чате обновится, а подтвердившим участие уйдёт личное уведомление.
+          </p>
+        )}
+
         <Card icon="when" title="Когда">
           <Field label="Начало" htmlFor="ef-starts" error={errors.starts_at}>
             <input
@@ -269,7 +359,13 @@ export function EventForm() {
           onClick={() => void submit()}
           disabled={submitting}
         >
-          {submitting ? 'Публикуем…' : 'Опубликовать анонс'}
+          {submitting
+            ? editing
+              ? 'Сохраняем…'
+              : 'Публикуем…'
+            : editing
+              ? 'Сохранить изменения'
+              : 'Опубликовать анонс'}
         </button>
       </div>
     </div>

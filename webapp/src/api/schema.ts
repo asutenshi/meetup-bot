@@ -38,6 +38,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events/{event_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Event Edit Context */
+        get: operations["event_edit_context_api_events__event_id__get"];
+        /** Update Event */
+        put: operations["update_event_api_events__event_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -87,6 +105,18 @@ export interface components {
             announcement_message_id: number | null;
         };
         /**
+         * EditEventContext
+         * @description Контекст формы редактирования: название проекта, участники для выбора
+         *     со-организаторов и текущие значения полей мероприятия.
+         */
+        EditEventContext: {
+            /** Project Name */
+            project_name: string;
+            /** Members */
+            members: components["schemas"]["EventFormMember"][];
+            event: components["schemas"]["EventFormData"];
+        };
+        /**
          * EventFormContext
          * @description Контекст для отрисовки формы создания мероприятия.
          */
@@ -95,6 +125,29 @@ export interface components {
             project_name: string;
             /** Members */
             members: components["schemas"]["EventFormMember"][];
+        };
+        /**
+         * EventFormData
+         * @description Значения полей мероприятия для предзаполнения формы редактирования.
+         */
+        EventFormData: {
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /** Ends At */
+            ends_at: string | null;
+            /** Location */
+            location: string;
+            /** Description */
+            description: string;
+            /** Budget Per Person */
+            budget_per_person: string | null;
+            /** Seats Limit */
+            seats_limit: number | null;
+            /** Co Organizer User Ids */
+            co_organizer_user_ids: number[];
         };
         /** EventFormMember */
         EventFormMember: {
@@ -109,6 +162,39 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * UpdateEventRequest
+         * @description Тело `PUT /api/events/{id}` — те же поля, что и при создании (форма одна,
+         *     предзаполненная, TZ §4.3).
+         */
+        UpdateEventRequest: {
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /** Ends At */
+            ends_at?: string | null;
+            /** Location */
+            location: string;
+            /** Description */
+            description: string;
+            /** Budget Per Person */
+            budget_per_person?: number | string | null;
+            /** Seats Limit */
+            seats_limit?: number | null;
+            /** Co Organizer User Ids */
+            co_organizer_user_ids?: number[];
+        };
+        /** UpdateEventResponse */
+        UpdateEventResponse: {
+            /** Event Id */
+            event_id: number;
+            /** Announcement Message Id */
+            announcement_message_id: number | null;
+            /** Notified Going */
+            notified_going: number;
         };
         /** ValidationError */
         ValidationError: {
@@ -189,6 +275,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CreateEventResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    event_edit_context_api_events__event_id__get: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: {
+                "X-Telegram-Init-Data"?: string | null;
+            };
+            path: {
+                event_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditEventContext"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_event_api_events__event_id__put: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: {
+                "X-Telegram-Init-Data"?: string | null;
+            };
+            path: {
+                event_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateEventResponse"];
                 };
             };
             /** @description Validation Error */

@@ -31,6 +31,19 @@ export function getProjectContext(): string | null {
   return value && value.trim() ? value : null;
 }
 
+/**
+ * Значение query-параметра `event` из URL Mini App. Бот подставляет его в
+ * кнопку из ответа на `/edit_event` (TZ §4.3): при наличии открывается форма
+ * редактирования этого мероприятия вместо создания. Нет параметра или он не
+ * похож на положительный id — `null` (режим создания).
+ */
+export function getEventContext(): number | null {
+  const value = new URLSearchParams(window.location.search).get('event');
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 function initDataHeader(): Record<string, string> {
   const raw = rawInitData();
   return raw ? { 'X-Telegram-Init-Data': raw } : {};
