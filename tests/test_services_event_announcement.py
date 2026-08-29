@@ -1,13 +1,32 @@
 import datetime
 import decimal
 
-from meetup_bot.db.enums import RSVPStatus
-from meetup_bot.db.models import Event, User
+from aiogram import Bot
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from meetup_bot.db.enums import (
+    EventStatus,
+    MembershipRole,
+    MembershipStatus,
+    RSVPStatus,
+)
+from meetup_bot.db.models import (
+    Event,
+    EventRSVP,
+    Project,
+    ProjectMembership,
+    ProjectSettings,
+    User,
+)
 from meetup_bot.services.event_announcement import (
     build_announcement_text,
     build_rsvp_keyboard,
+    refresh_event_announcement,
+    refresh_member_announcements,
     rsvp_callback_data,
 )
+from tests.conftest import FakeBotApi
 
 STARTS_AT = datetime.datetime(2026, 9, 14, 15, 0, tzinfo=datetime.UTC)
 
@@ -84,6 +103,18 @@ def test_announcement_counter_and_going_mentions() -> None:
     assert '<a href="tg://user?id=20">Миша</a>' in text
 
 
+def test_announcement_numbers_the_going_list() -> None:
+    going = [_user(10, "Аня", "anya"), _user(20, "Миша"), _user(30, "Лера", "lera")]
+    text = build_announcement_text(
+        _event(), co_organizers=[], going=going, timezone="Europe/Moscow"
+    )
+
+    lines = text.splitlines()
+    assert "1. @anya" in lines
+    assert '2. <a href="tg://user?id=20">Миша</a>' in lines
+    assert "3. @lera" in lines
+
+
 def test_announcement_escapes_html_in_free_text() -> None:
     text = build_announcement_text(
         _event(description="<b>hack</b> & <script>"),
@@ -113,3 +144,151 @@ def test_rsvp_keyboard_callback_data() -> None:
         rsvp_callback_data(42, RSVPStatus.NOT_GOING),
     ]
     assert datas == ["rsvp:42:going", "rsvp:42:not_going"]
+
+
+async def _seed_event(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    announcement_message_id: int | None = 500,
+    status: EventStatus = EventStatus.PLANNED,
+    finalized: bool = False,
+) -> dict[str, int]:
+    """Проект с двумя участниками (Аня, Миша), оба со `status=going`."""
+    async with session_factory() as session:
+        project = Project(tg_chat_id=-100_700, name="Alpha", invite_payload="alpha")
+        session.add(project)
+        await session.flush()
+        session.add(ProjectSettings(project_id=project.id, timezone="Europe/Moscow"))
+
+        anya = User(tg_user_id=1, first_name="Аня", username="anya")
+        misha = User(tg_user_id=2, first_name="Миша", username="misha")
+        session.add_all([anya, misha])
+        await session.flush()
+        session.add_all(
+            [
+                ProjectMembership(
+                    project_id=project.id, user_id=anya.id, role=MembershipRole.OWNER
+                ),
+                ProjectMembership(
+                    project_id=project.id, user_id=misha.id, role=MembershipRole.MEMBER
+                ),
+            ]
+        )
+
+        event = Event(
+            project_id=project.id,
+            description="Прогулка",
+            starts_at=STARTS_AT,
+            location="Парк",
+            status=status,
+            created_by=anya.id,
+            announcement_message_id=announcement_message_id,
+            attendance_finalized_at=(
+                datetime.datetime(2026, 9, 20, tzinfo=datetime.UTC) if finalized else None
+            ),
+        )
+        session.add(event)
+        await session.flush()
+        session.add_all(
+            [
+                EventRSVP(
+                    event_id=event.id,
+                    user_id=anya.id,
+                    status=RSVPStatus.GOING,
+                    updated_by=anya.id,
+                ),
+                EventRSVP(
+                    event_id=event.id,
+                    user_id=misha.id,
+                    status=RSVPStatus.GOING,
+                    updated_by=misha.id,
+                ),
+            ]
+        )
+        await session.commit()
+        return {
+            "project_id": project.id,
+            "event_id": event.id,
+            "anya_id": anya.id,
+            "misha_id": misha.id,
+            "chat_id": project.tg_chat_id,
+        }
+
+
+async def test_refresh_event_announcement_excludes_removed_member(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed_event(session_factory)
+
+    async with session_factory() as session:
+        membership = await session.scalar(
+            select(ProjectMembership).where(ProjectMembership.user_id == ids["misha_id"])
+        )
+        assert membership is not None
+        membership.status = MembershipStatus.REMOVED
+        await session.commit()
+
+        event = await session.get(Event, ids["event_id"])
+        assert event is not None
+        await refresh_event_announcement(bot, session, event)
+
+    text = fake_bot_api.edited_messages[-1].text or ""
+    assert "✅ Участвует: 1" in text
+    assert "@anya" in text
+    assert "@misha" not in text
+
+
+async def test_refresh_member_announcements_edits_only_going_planned_events(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed_event(session_factory)
+
+    async with session_factory() as session:
+        project_id = ids["project_id"]
+        # Ещё одно planned-мероприятие, где Миша НЕ идёт → трогать не нужно.
+        skip_event = Event(
+            project_id=project_id,
+            description="Кино",
+            starts_at=STARTS_AT,
+            location="Кинотеатр",
+            created_by=ids["anya_id"],
+            announcement_message_id=600,
+        )
+        session.add(skip_event)
+        await session.flush()
+        session.add(
+            EventRSVP(
+                event_id=skip_event.id,
+                user_id=ids["misha_id"],
+                status=RSVPStatus.NOT_GOING,
+                updated_by=ids["misha_id"],
+            )
+        )
+        await session.commit()
+
+    async with session_factory() as session:
+        await refresh_member_announcements(
+            bot, session, project_id=ids["project_id"], user_id=ids["misha_id"]
+        )
+
+    edited_ids = {m.message_id for m in fake_bot_api.edited_messages}
+    assert edited_ids == {500}
+
+
+async def test_refresh_member_announcements_skips_finalized_event(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed_event(session_factory, finalized=True)
+
+    async with session_factory() as session:
+        await refresh_member_announcements(
+            bot, session, project_id=ids["project_id"], user_id=ids["misha_id"]
+        )
+
+    assert fake_bot_api.edited_messages == []

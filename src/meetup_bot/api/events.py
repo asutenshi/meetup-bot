@@ -23,11 +23,9 @@ from meetup_bot.api.context import ProjectContext, get_bot, require_project_cont
 from meetup_bot.db.enums import MembershipStatus
 from meetup_bot.db.models import Event, EventCoOrganizer, ProjectMembership, ProjectSettings, User
 from meetup_bot.db.session import get_session
-from meetup_bot.services.event_announcement import publish_event_announcement
+from meetup_bot.services.event_announcement import DEFAULT_TIMEZONE, publish_event_announcement
 
 router = APIRouter(prefix="/api", tags=["events"])
-
-_DEFAULT_TIMEZONE = "Europe/Moscow"
 
 
 class EventFormMember(BaseModel):
@@ -144,7 +142,7 @@ async def create_event(
         session.add(EventCoOrganizer(event_id=event.id, user_id=uid))
 
     settings = await session.get(ProjectSettings, ctx.project.id)
-    timezone = settings.timezone if settings is not None else _DEFAULT_TIMEZONE
+    timezone = settings.timezone if settings is not None else DEFAULT_TIMEZONE
     co_organizers = [members_by_id[uid] for uid in co_organizer_ids]
 
     announcement_message_id = await publish_event_announcement(
