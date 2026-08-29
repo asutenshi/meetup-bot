@@ -1,85 +1,44 @@
-import { useEffect, useState } from 'react';
-
 import { AppRoot } from '@telegram-apps/telegram-ui';
 
 import { getProjectContext, hasInitData } from './api/client';
-import type { ApiPaths } from './api/client';
+import { EventForm } from './event-form/EventForm';
 import './App.css';
 
-type HealthState = 'checking' | 'ok' | 'error';
-
-/** Тип ответа /health — из сгенерированной OpenAPI-схемы (make openapi). */
-type HealthResponse =
-  ApiPaths['/health']['get']['responses'][200]['content']['application/json'];
-
 /**
- * Экран-заглушка каркаса (TASKS.md 2.1–2.2). Показывает, что собрано и связано:
- * Telegram SDK инициализирован, токены оформления берутся из themeParams,
- * фирменный акцент — сменяемый токен --accent, запрос к бэкенду проходит, и
- * распознан контекст открытия (внутри Telegram / с каким проектом). Реальная
- * форма мероприятия и `POST /api/events` — задача 2.5.
+ * Точка входа Web App. Пока единственный экран — форма создания мероприятия
+ * (TASKS.md 2.5), открывается кнопкой из ответа бота на `/new_event` с
+ * `?project=<invite_payload>` в URL. Домашний экран-хаб и роутинг между
+ * экранами — задача 2.9.
  */
 export function App() {
-  const [health, setHealth] = useState<HealthState>('checking');
-
   const insideTelegram = hasInitData();
   const project = getProjectContext();
 
-  useEffect(() => {
-    let alive = true;
-    fetch('/health')
-      .then((r) => r.json() as Promise<HealthResponse>)
-      .then((data) => {
-        if (alive) setHealth(data.status === 'ok' ? 'ok' : 'error');
-      })
-      .catch(() => {
-        if (alive) setHealth('error');
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  if (insideTelegram && project) {
+    return (
+      <AppRoot>
+        <EventForm />
+      </AppRoot>
+    );
+  }
 
   return (
     <AppRoot>
       <main className="screen">
         <section className="card">
           <h1 className="card__title">meetup-bot · Web App</h1>
-          <p className="card__hint">
-            Каркас Telegram Mini App. Поверхности и текст — из Telegram{' '}
-            <code>themeParams</code>, фирменный акцент — сменяемый токен{' '}
-            <code>--accent</code> (WEBAPP_DESIGN.md).
-          </p>
-          <div className="swatch">--accent</div>
-        </section>
-
-        <section className="card">
           {!insideTelegram ? (
             <p className="card__hint">
               Приложение открыто вне Telegram. Откройте форму через команду{' '}
               <code>/new_event</code> в личном чате с ботом — иначе бэкенд отклонит
               запросы (нет подписи <code>initData</code>).
             </p>
-          ) : project ? (
-            <p className="card__hint">
-              Контекст проекта: <code>{project}</code>. Форма создания мероприятия
-              появится здесь в задаче 2.5.
-            </p>
           ) : (
             <p className="card__hint">
-              Контекст проекта не передан (<code>?project=…</code> в URL). Откройте
+              Не передан контекст проекта (<code>?project=…</code> в URL). Откройте
               приложение кнопкой из ответа бота на <code>/new_event</code>.
             </p>
           )}
-        </section>
-
-        <section className="card">
-          <p className="card__hint">
-            Бэкенд <code>/health</code>:{' '}
-            <span className="status" data-state={health}>
-              {health}
-            </span>
-          </p>
         </section>
       </main>
     </AppRoot>

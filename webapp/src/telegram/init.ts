@@ -1,4 +1,4 @@
-import { init, themeParams, viewport } from '@tma.js/sdk';
+import { init, miniApp, themeParams, viewport } from '@tma.js/sdk';
 
 let started = false;
 
@@ -20,6 +20,10 @@ export function initTelegram(): void {
     return;
   }
 
+  if (miniApp.mount.isAvailable()) {
+    miniApp.mount();
+  }
+
   if (themeParams.mount.isAvailable()) {
     themeParams.mount();
   }
@@ -29,5 +33,19 @@ export function initTelegram(): void {
     if (viewport.expand.isAvailable()) {
       viewport.expand();
     }
+  }
+
+  // Снимает нативный лоадер Telegram — экран готов к показу.
+  if (miniApp.ready.isAvailable()) {
+    miniApp.ready();
+  }
+}
+
+/**
+ * Закрыть Mini App (кнопка «Закрыть» на экране успеха). Вне Telegram — no-op.
+ */
+export function closeMiniApp(): void {
+  if (miniApp.close.isAvailable()) {
+    miniApp.close();
   }
 }
