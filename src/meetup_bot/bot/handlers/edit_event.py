@@ -1,0 +1,136 @@
+"""`/edit_event` — точка входа в форму редактирования мероприятия (Mini App).
+
+Только в приватном чате с ботом (как `/new_event`, `/start`): все точки входа в
+Mini App — из лички (TZ §3.8). Бот присылает список мероприятий, которые
+вызвавший вправе редактировать (организатор/со-организатор по `EventCoOrganizer`,
+либо, если строк нет, — создатель или админ проекта), у каждого —
+`web_app`-кнопка с уже подставленным контекстом проекта и `event_id`. Право
+проверяется повторно на бэкенде при сохранении (`PUT /api/events/{id}`).
+
+Кнопки «Редактировать» под анонсом в группе намеренно нет (TZ §3.8, §4.3).
+"""
+
+from aiogram import F, Router
+from aiogram.filters import Command
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    WebAppInfo,
+)
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from meetup_bot.config import Settings
+from meetup_bot.db.enums import MembershipStatus
+from meetup_bot.db.models import Event, ProjectMembership, ProjectSettings, User
+from meetup_bot.services.event_announcement import DEFAULT_TIMEZONE, format_short_datetime
+from meetup_bot.services.events import list_manageable_events, user_is_project_admin
+from meetup_bot.services.projects import list_user_active_projects
+from meetup_bot.services.webapp_url import build_web_app_url
+
+_NOT_CONFIGURED_TEXT = (
+    "Редактирование мероприятий пока недоступно: не настроен публичный адрес Web App. "
+    "Обратитесь к администратору бота."
+)
+_NO_PROJECTS_TEXT = (
+    "Вы пока не состоите ни в одном проекте. Зарегистрируйтесь по ссылке из поста "
+    "регистрации в вашем групповом чате."
+)
+_NO_EVENTS_TEXT = (
+    "Нет мероприятий, которые вы можете редактировать. Форма доступна организаторам "
+    "мероприятия, а если организатор не назначен — создателю и админам проекта."
+)
+_PICK_EVENT_TEXT = "Какое мероприятие отредактировать?"
+_BUTTON_TEXT_LIMIT = 64
+
+
+def _event_button_label(event: Event, timezone: str) -> str:
+    head = event.title or event.location
+    label = f"{format_short_datetime(event.starts_at, timezone)} · {head}"
+    if len(label) > _BUTTON_TEXT_LIMIT:
+        label = label[: _BUTTON_TEXT_LIMIT - 1] + "…"
+    return label
+
+
+async def _member_user_id(
+    session: AsyncSession, *, project_id: int, tg_user_id: int
+) -> int | None:
+    row = await session.scalar(
+        select(User.id)
+        .join(ProjectMembership, ProjectMembership.user_id == User.id)
+        .where(
+            ProjectMembership.project_id == project_id,
+            ProjectMembership.status == MembershipStatus.ACTIVE,
+            User.tg_user_id == tg_user_id,
+        )
+    )
+    return int(row) if row is not None else None
+
+
+def create_router() -> Router:
+    router = Router(name="edit_event")
+
+    @router.message(Command("edit_event"), F.chat.type == "private")
+    async def on_edit_event(
+        message: Message, session: AsyncSession, settings: Settings | None
+    ) -> None:
+        if message.from_user is None:
+            return
+        if settings is None or not settings.public_base_url:
+            await message.answer(_NOT_CONFIGURED_TEXT)
+            return
+
+        projects = await list_user_active_projects(session, tg_user_id=message.from_user.id)
+        if not projects:
+            await message.answer(_NO_PROJECTS_TEXT)
+            return
+
+        # Мероприятия собираем по всем проектам пользователя — кнопка каждого
+        # несёт собственный контекст проекта в URL.
+        buttons: list[list[InlineKeyboardButton]] = []
+        for project in projects:
+            user_id = await _member_user_id(
+                session, project_id=project.id, tg_user_id=message.from_user.id
+            )
+            if user_id is None:
+                continue
+            is_admin = await user_is_project_admin(
+                session, project_id=project.id, user_id=user_id
+            )
+            events = await list_manageable_events(
+                session, project_id=project.id, user_id=user_id, is_admin=is_admin
+            )
+            if not events:
+                continue
+            project_settings = await session.get(ProjectSettings, project.id)
+            timezone = (
+                project_settings.timezone
+                if project_settings is not None
+                else DEFAULT_TIMEZONE
+            )
+            for event in events:
+                url = build_web_app_url(
+                    settings.public_base_url,
+                    project_payload=project.invite_payload,
+                    event_id=event.id,
+                )
+                buttons.append(
+                    [
+                        InlineKeyboardButton(
+                            text=_event_button_label(event, timezone),
+                            web_app=WebAppInfo(url=url),
+                        )
+                    ]
+                )
+
+        if not buttons:
+            await message.answer(_NO_EVENTS_TEXT)
+            return
+
+        await message.answer(
+            _PICK_EVENT_TEXT,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+        )
+
+    return router

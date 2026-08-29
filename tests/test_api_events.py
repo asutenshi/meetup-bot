@@ -1,3 +1,4 @@
+import datetime
 import hashlib
 import hmac
 import json
@@ -14,10 +15,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from meetup_bot.api import router as api_router
 from meetup_bot.api.webapp_auth import INIT_DATA_HEADER
 from meetup_bot.config import Settings
-from meetup_bot.db.enums import MembershipRole, MembershipStatus, TopicCategory
+from meetup_bot.db.enums import (
+    EventStatus,
+    MembershipRole,
+    MembershipStatus,
+    RSVPStatus,
+    TopicCategory,
+)
 from meetup_bot.db.models import (
     Event,
     EventCoOrganizer,
+    EventRSVP,
     Project,
     ProjectMembership,
     ProjectSettings,
@@ -348,6 +356,251 @@ async def test_create_event_publishes_to_events_topic(
 
     assert response.status_code == 201
     assert fake_bot_api.sent_thread_ids[-1] == 4242
+
+
+async def _make_event(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    project_id: int,
+    created_by: int,
+    co_organizer_ids: list[int] | None = None,
+    going_user_ids: list[int] | None = None,
+) -> int:
+    async with session_factory() as session:
+        event = Event(
+            project_id=project_id,
+            description="Старое описание",
+            starts_at=datetime.datetime(2026, 10, 1, 18, 0, tzinfo=datetime.UTC),
+            location="Старое место",
+            created_by=created_by,
+            announcement_message_id=777,
+        )
+        session.add(event)
+        await session.flush()
+        for uid in co_organizer_ids or []:
+            session.add(EventCoOrganizer(event_id=event.id, user_id=uid))
+        for uid in going_user_ids or []:
+            session.add(
+                EventRSVP(
+                    event_id=event.id,
+                    user_id=uid,
+                    status=RSVPStatus.GOING,
+                    updated_by=uid,
+                )
+            )
+        await session.commit()
+        return event.id
+
+
+def _edit_body(**overrides: object) -> dict[str, object]:
+    body: dict[str, object] = {
+        "starts_at": "2026-10-01T18:00:00Z",
+        "location": "Старое место",
+        "description": "Старое описание",
+        "co_organizer_user_ids": [],
+    }
+    body.update(overrides)
+    return body
+
+
+async def test_edit_context_returns_prefill(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory,
+        project_id=ids["project_id"],
+        created_by=ids["creator_id"],
+        co_organizer_ids=[ids["creator_id"]],
+    )
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.get(
+            f"/api/events/{event_id}",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_CREATOR_TG_ID)},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["project_name"] == "Alpha"
+    assert data["event"]["location"] == "Старое место"
+    assert data["event"]["co_organizer_user_ids"] == [ids["creator_id"]]
+    assert {m["user_id"] for m in data["members"]} == {ids["creator_id"], ids["other_id"]}
+
+
+async def test_edit_context_403_for_non_organizer(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory,
+        project_id=ids["project_id"],
+        created_by=ids["creator_id"],
+        co_organizer_ids=[ids["creator_id"]],
+    )
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.get(
+            f"/api/events/{event_id}",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_OTHER_TG_ID)},
+        )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "not_an_organizer"
+
+
+async def test_edit_context_404_for_event_of_other_project(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory, project_id=ids["project_id"], created_by=ids["creator_id"]
+    )
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.get(
+            f"/api/events/{event_id}",
+            params={"project": "beta"},
+            headers={INIT_DATA_HEADER: _init_data(_OUTSIDER_TG_ID)},
+        )
+
+    assert response.status_code == 404
+
+
+async def test_update_event_changes_fields_and_edits_announcement(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot, fake_bot_api: FakeBotApi
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory, project_id=ids["project_id"], created_by=ids["creator_id"]
+    )
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.put(
+            f"/api/events/{event_id}",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_CREATOR_TG_ID)},
+            json=_edit_body(location="Новое место", seats_limit=10),
+        )
+
+    assert response.status_code == 200
+    async with session_factory() as session:
+        event = await session.get(Event, event_id)
+        assert event is not None
+        assert event.location == "Новое место"
+        assert event.seats_limit == 10
+
+    edited = fake_bot_api.edited_messages[-1]
+    assert edited.message_id == 777
+    assert "Новое место" in (edited.text or "")
+
+
+async def test_update_event_notifies_going_members(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot, fake_bot_api: FakeBotApi
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory,
+        project_id=ids["project_id"],
+        created_by=ids["creator_id"],
+        going_user_ids=[ids["other_id"]],
+    )
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.put(
+            f"/api/events/{event_id}",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_CREATOR_TG_ID)},
+            json=_edit_body(starts_at="2026-10-02T18:00:00Z"),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["notified_going"] == 1
+    dm = [m for m in fake_bot_api.sent_messages if m.chat_id == _OTHER_TG_ID]
+    assert dm and "Когда" in (dm[-1].text or "")
+
+
+async def test_update_event_replaces_co_organizers(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory,
+        project_id=ids["project_id"],
+        created_by=ids["creator_id"],
+        co_organizer_ids=[ids["creator_id"]],
+    )
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.put(
+            f"/api/events/{event_id}",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_CREATOR_TG_ID)},
+            json=_edit_body(co_organizer_user_ids=[ids["other_id"]]),
+        )
+
+    assert response.status_code == 200
+    async with session_factory() as session:
+        rows = await session.scalars(
+            select(EventCoOrganizer.user_id).where(EventCoOrganizer.event_id == event_id)
+        )
+        assert set(rows) == {ids["other_id"]}
+
+
+async def test_update_event_403_for_non_organizer(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory,
+        project_id=ids["project_id"],
+        created_by=ids["creator_id"],
+        co_organizer_ids=[ids["creator_id"]],
+    )
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.put(
+            f"/api/events/{event_id}",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_OTHER_TG_ID)},
+            json=_edit_body(location="Взлом"),
+        )
+
+    assert response.status_code == 403
+
+
+async def test_update_event_409_when_cancelled(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory, project_id=ids["project_id"], created_by=ids["creator_id"]
+    )
+    async with session_factory() as session:
+        event = await session.get(Event, event_id)
+        assert event is not None
+        event.status = EventStatus.CANCELLED
+        await session.commit()
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.put(
+            f"/api/events/{event_id}",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_CREATOR_TG_ID)},
+            json=_edit_body(),
+        )
+
+    assert response.status_code == 409
 
 
 async def test_create_event_removed_member_cannot_be_co_organizer(

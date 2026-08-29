@@ -7,6 +7,7 @@ from meetup_bot.bot.handlers import (
     admin_commands,
     all_members,
     chat_member,
+    edit_event,
     new_event,
     rsvp,
     set_topic,
@@ -38,5 +39,6 @@ def create_dispatcher(
     dispatcher.include_router(set_topic.create_router())
     dispatcher.include_router(admin_commands.create_router())
     dispatcher.include_router(new_event.create_router())
+    dispatcher.include_router(edit_event.create_router())
     dispatcher.include_router(rsvp.create_router())
     return dispatcher

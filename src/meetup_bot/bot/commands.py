@@ -19,6 +19,7 @@ from aiogram.types import (
 PRIVATE_COMMANDS: list[BotCommand] = [
     BotCommand(command="start", description="Зарегистрироваться по ссылке из чата"),
     BotCommand(command="new_event", description="Создать мероприятие"),
+    BotCommand(command="edit_event", description="Редактировать мероприятие"),
 ]
 
 # Все групповые команды зарегистрированы на `group`/`supergroup` и доступны

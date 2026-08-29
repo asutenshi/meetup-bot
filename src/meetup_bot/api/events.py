@@ -20,10 +20,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meetup_bot.api.context import ProjectContext, get_bot, require_project_context
-from meetup_bot.db.enums import MembershipStatus
+from meetup_bot.db.enums import EventStatus, MembershipRole, MembershipStatus
 from meetup_bot.db.models import Event, EventCoOrganizer, ProjectMembership, ProjectSettings, User
 from meetup_bot.db.session import get_session
-from meetup_bot.services.event_announcement import DEFAULT_TIMEZONE, publish_event_announcement
+from meetup_bot.services.event_announcement import (
+    DEFAULT_TIMEZONE,
+    EventSnapshot,
+    build_event_update_notification,
+    publish_event_announcement,
+    refresh_event_announcement,
+)
+from meetup_bot.services.events import can_manage_event, notify_going_members
 
 router = APIRouter(prefix="/api", tags=["events"])
 
@@ -65,9 +72,41 @@ class CreateEventRequest(BaseModel):
         return self
 
 
+class UpdateEventRequest(CreateEventRequest):
+    """Тело `PUT /api/events/{id}` — те же поля, что и при создании (форма одна,
+    предзаполненная, TZ §4.3)."""
+
+
 class CreateEventResponse(BaseModel):
     event_id: int
     announcement_message_id: int | None
+
+
+class EventFormData(BaseModel):
+    """Значения полей мероприятия для предзаполнения формы редактирования."""
+
+    starts_at: datetime.datetime
+    ends_at: datetime.datetime | None
+    location: str
+    description: str
+    budget_per_person: decimal.Decimal | None
+    seats_limit: int | None
+    co_organizer_user_ids: list[int]
+
+
+class EditEventContext(BaseModel):
+    """Контекст формы редактирования: название проекта, участники для выбора
+    со-организаторов и текущие значения полей мероприятия."""
+
+    project_name: str
+    members: list[EventFormMember]
+    event: EventFormData
+
+
+class UpdateEventResponse(BaseModel):
+    event_id: int
+    announcement_message_id: int | None
+    notified_going: int
 
 
 def _display_name(user: User) -> str:
@@ -159,4 +198,119 @@ async def create_event(
 
     return CreateEventResponse(
         event_id=event.id, announcement_message_id=announcement_message_id
+    )
+
+
+async def _load_manageable_event(
+    session: AsyncSession, ctx: ProjectContext, event_id: int
+) -> Event:
+    """Мероприятие проекта из контекста, которое текущий пользователь вправе
+    редактировать. `404 event_not_found` — чужой/несуществующий id (факт
+    существования в другом проекте наружу не раскрываем), `409 event_not_editable`
+    — отменено или явка уже финализирована, `403 not_an_organizer` — нет прав."""
+    event = await session.get(Event, event_id)
+    if event is None or event.project_id != ctx.project.id:
+        raise HTTPException(status_code=404, detail="event_not_found")
+    if event.status != EventStatus.PLANNED or event.attendance_finalized_at is not None:
+        raise HTTPException(status_code=409, detail="event_not_editable")
+
+    is_admin = ctx.membership.role in (MembershipRole.OWNER, MembershipRole.ADMIN)
+    if not await can_manage_event(
+        session, event=event, user_id=ctx.user.id, is_admin=is_admin
+    ):
+        raise HTTPException(status_code=403, detail="not_an_organizer")
+    return event
+
+
+@router.get("/events/{event_id}")
+async def event_edit_context(
+    event_id: int,
+    ctx: Annotated[ProjectContext, Depends(require_project_context)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> EditEventContext:
+    event = await _load_manageable_event(session, ctx, event_id)
+    members = await _active_members(session, project_id=ctx.project.id)
+    co_ids = list(
+        await session.scalars(
+            select(EventCoOrganizer.user_id)
+            .where(EventCoOrganizer.event_id == event.id)
+            .order_by(EventCoOrganizer.id)
+        )
+    )
+    return EditEventContext(
+        project_name=ctx.project.name,
+        members=[
+            EventFormMember(
+                user_id=user.id,
+                name=_display_name(user),
+                is_self=user.id == ctx.user.id,
+            )
+            for _, user in members
+        ],
+        event=EventFormData(
+            starts_at=event.starts_at,
+            ends_at=event.ends_at,
+            location=event.location,
+            description=event.description,
+            budget_per_person=event.budget_per_person,
+            seats_limit=event.seats_limit,
+            co_organizer_user_ids=co_ids,
+        ),
+    )
+
+
+@router.put("/events/{event_id}")
+async def update_event(
+    event_id: int,
+    payload: UpdateEventRequest,
+    ctx: Annotated[ProjectContext, Depends(require_project_context)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    bot: Annotated[Bot, Depends(get_bot)],
+) -> UpdateEventResponse:
+    event = await _load_manageable_event(session, ctx, event_id)
+
+    members = await _active_members(session, project_id=ctx.project.id)
+    members_by_id = {user.id: user for _, user in members}
+    co_organizer_ids = list(dict.fromkeys(payload.co_organizer_user_ids))
+    unknown = [uid for uid in co_organizer_ids if uid not in members_by_id]
+    if unknown:
+        raise HTTPException(status_code=422, detail="co_organizer_not_a_member")
+
+    settings = await session.get(ProjectSettings, ctx.project.id)
+    timezone = settings.timezone if settings is not None else DEFAULT_TIMEZONE
+
+    before = EventSnapshot(event)
+    event.starts_at = payload.starts_at
+    event.ends_at = payload.ends_at
+    event.location = payload.location
+    event.description = payload.description
+    event.budget_per_person = payload.budget_per_person
+    event.seats_limit = payload.seats_limit
+
+    existing = {
+        row.user_id: row
+        for row in await session.scalars(
+            select(EventCoOrganizer).where(EventCoOrganizer.event_id == event.id)
+        )
+    }
+    for uid, row in existing.items():
+        if uid not in co_organizer_ids:
+            await session.delete(row)
+    for uid in co_organizer_ids:
+        if uid not in existing:
+            session.add(EventCoOrganizer(event_id=event.id, user_id=uid))
+
+    await session.flush()
+    await refresh_event_announcement(bot, session, event)
+    await session.commit()
+
+    notified = 0
+    notification = build_event_update_notification(before, event, timezone=timezone)
+    if notification is not None:
+        notified = await notify_going_members(bot, session, event, text=notification)
+
+    return UpdateEventResponse(
+        event_id=event.id,
+        announcement_message_id=event.announcement_message_id,
+        notified_going=notified,
     )

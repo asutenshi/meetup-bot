@@ -82,6 +82,12 @@ def _format_datetime(value: datetime.datetime, tz: ZoneInfo) -> str:
     return f"{local.day} {_MONTHS_GENITIVE[local.month - 1]}, {local:%H:%M}"
 
 
+def format_short_datetime(value: datetime.datetime, timezone: str) -> str:
+    """«14 сентября, 15:00» в таймзоне проекта — для коротких подписей (кнопки
+    списка `/edit_event`, уведомления об изменениях)."""
+    return _format_datetime(value, _resolve_tz(timezone))
+
+
 def _format_amount(value: decimal.Decimal) -> str:
     return f"{value.normalize():f}"
 
@@ -130,6 +136,67 @@ def build_announcement_text(
         lines.append(f"✅ Участвует: {len(going)}")
     lines.extend(f"{i}. {_mention(u)}" for i, u in enumerate(going, start=1))
 
+    return "\n".join(lines)
+
+
+class EventSnapshot:
+    """Значения полей мероприятия, за изменением которых следит уведомление
+    подтвердившим (TZ §4.3 «Редактирование»). Снимается до применения правок."""
+
+    __slots__ = (
+        "starts_at",
+        "ends_at",
+        "location",
+        "description",
+        "budget_per_person",
+        "seats_limit",
+    )
+
+    def __init__(self, event: Event) -> None:
+        self.starts_at = event.starts_at
+        self.ends_at = event.ends_at
+        self.location = event.location
+        self.description = event.description
+        self.budget_per_person = event.budget_per_person
+        self.seats_limit = event.seats_limit
+
+
+def build_event_update_notification(
+    before: EventSnapshot, event: Event, *, timezone: str
+) -> str | None:
+    """Личное уведомление подтвердившим участие: что изменилось в мероприятии.
+    `None`, если ни одно отслеживаемое поле не поменялось (тогда рассылки нет)."""
+    tz = _resolve_tz(timezone)
+    changes: list[str] = []
+
+    if before.starts_at != event.starts_at or before.ends_at != event.ends_at:
+        when = _format_datetime(event.starts_at, tz)
+        if event.ends_at is not None:
+            when += f" — {_format_datetime(event.ends_at, tz)}"
+        changes.append(f"🗓 Когда: {when}")
+    if before.location != event.location:
+        changes.append(f"📍 Где: {escape(event.location)}")
+    if before.description != event.description:
+        changes.append(f"📝 Описание: {escape(event.description)}")
+    if before.budget_per_person != event.budget_per_person:
+        if event.budget_per_person is None:
+            changes.append("💰 Бюджет с человека больше не указан")
+        else:
+            changes.append(
+                f"💰 Бюджет с человека: {_format_amount(event.budget_per_person)} ₽"
+            )
+    if before.seats_limit != event.seats_limit:
+        if event.seats_limit is None:
+            changes.append("🎟 Лимит мест снят")
+        else:
+            changes.append(f"🎟 Мест: {event.seats_limit}")
+
+    if not changes:
+        return None
+
+    title = event.title or "мероприятие"
+    lines = [f"Изменилось {escape(title)}, вы записаны на участие:", ""]
+    lines.extend(changes)
     return "\n".join(lines)
 
 
