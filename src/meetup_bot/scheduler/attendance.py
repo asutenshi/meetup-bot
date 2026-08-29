@@ -9,22 +9,17 @@
 
 import logging
 from datetime import UTC, datetime, time, timedelta
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from aiogram import Bot
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from meetup_bot.db.enums import EventStatus, MembershipStatus, RSVPStatus
 from meetup_bot.db.models import Event, ProjectMembership, ProjectSettings
+from meetup_bot.scheduler.timezones import DEFAULT_TZ, resolve_project_tz
 
 logger = logging.getLogger("meetup_bot.scheduler")
-
-# Таймзона по умолчанию — та же, что `ProjectSettings.timezone.server_default`;
-# используется, если в проекте почему-то нет строки настроек или в ней лежит
-# нераспознаваемое значение (до появления UI задачи 4.5 менять его некому, но
-# джоба не должна падать/зависать на кривой строке).
-_DEFAULT_TZ = "Europe/Moscow"
 
 
 def _finalization_due_at(effective_end: datetime, tz_name: str) -> datetime:
@@ -34,19 +29,21 @@ def _finalization_due_at(effective_end: datetime, tz_name: str) -> datetime:
     Смещение на целые сутки — намеренный запас для организатора: до этого момента
     можно поправить чьи-то ошибочные самоотметки через корректировку `EventRSVP`
     (TZ §3.4, п.1; §4.3)."""
-    try:
-        tz = ZoneInfo(tz_name)
-    except (ZoneInfoNotFoundError, ValueError):
-        logger.warning("финализация явки: неизвестная таймзона %r, беру %s", tz_name, _DEFAULT_TZ)
-        tz = ZoneInfo(_DEFAULT_TZ)
+    tz = resolve_project_tz(tz_name)
     if effective_end.tzinfo is None:
         effective_end = effective_end.replace(tzinfo=UTC)
     local_end_date = effective_end.astimezone(tz).date()
     return datetime.combine(local_end_date + timedelta(days=1), time.min, tzinfo=tz)
 
 
-async def finalize_attendance(session: AsyncSession, *, now: datetime | None = None) -> None:
+async def finalize_attendance(
+    session: AsyncSession, bot: Bot | None = None, *, now: datetime | None = None
+) -> None:
     """Финализирует явку для всех «дозревших» мероприятий (TZ §3.4, п.1).
+
+    `bot` — часть общего интерфейса шага прохода (`meetup_bot.scheduler._PASSES`);
+    рассылающим шагам 4.3–4.4 он нужен, финализация явки в Telegram не ходит и
+    аргумент игнорирует.
 
     Кандидаты: `status = planned` и `attendance_finalized_at IS NULL`. Фильтр по
     моменту финализации (полночь следующего дня в таймзоне проекта) считается в
@@ -74,7 +71,7 @@ async def finalize_attendance(session: AsyncSession, *, now: datetime | None = N
     finalized = 0
     for event in candidates:
         settings = await session.get(ProjectSettings, event.project_id)
-        tz_name = settings.timezone if settings is not None else _DEFAULT_TZ
+        tz_name = settings.timezone if settings is not None else DEFAULT_TZ
         if now < _finalization_due_at(event.ends_at or event.starts_at, tz_name):
             continue
 
