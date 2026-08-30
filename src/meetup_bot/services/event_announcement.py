@@ -100,8 +100,14 @@ def build_announcement_text(
     timezone: str,
 ) -> str:
     """HTML-текст анонса: все поля мероприятия + счётчик подтвердивших и их
-    никнеймы (TZ §4.3 «RSVP»). Список «не участвую» в анонсе не показывается."""
+    никнеймы (TZ §4.3 «RSVP»). Список «не участвую» в анонсе не показывается.
+
+    Для отменённого мероприятия (`status = cancelled`, задача 2.8) блок со
+    счётчиком подтвердивших опускается, а вместо него снизу — выделенная пометка
+    «Мероприятие отменено» (RSVP уже неактуален; кнопки снимает
+    `refresh_event_announcement`)."""
     tz = _resolve_tz(timezone)
+    cancelled = event.status == EventStatus.CANCELLED
 
     lines: list[str] = []
     if event.title:
@@ -129,12 +135,16 @@ def build_announcement_text(
         lines.append("")
         lines.append("Организуют: " + ", ".join(_mention(u) for u in co_organizers))
 
-    lines.append("")
-    if event.seats_limit is not None:
-        lines.append(f"✅ Участвует: {len(going)}/{event.seats_limit}")
+    if cancelled:
+        lines.append("")
+        lines.append("🚫 <b>Мероприятие отменено</b>")
     else:
-        lines.append(f"✅ Участвует: {len(going)}")
-    lines.extend(f"{i}. {_mention(u)}" for i, u in enumerate(going, start=1))
+        lines.append("")
+        if event.seats_limit is not None:
+            lines.append(f"✅ Участвует: {len(going)}/{event.seats_limit}")
+        else:
+            lines.append(f"✅ Участвует: {len(going)}")
+        lines.extend(f"{i}. {_mention(u)}" for i, u in enumerate(going, start=1))
 
     return "\n".join(lines)
 
@@ -198,6 +208,24 @@ def build_event_update_notification(
     lines = [f"Изменилось {escape(title)}, вы записаны на участие:", ""]
     lines.extend(changes)
     return "\n".join(lines)
+
+
+def build_event_cancelled_notification(event: Event, *, timezone: str) -> str:
+    """Личное уведомление подтвердившим участие об отмене мероприятия (задача 2.8).
+    В отличие от уведомления об изменении, шлётся всегда — отмена существенна."""
+    tz = _resolve_tz(timezone)
+    title = event.title or "мероприятие"
+    when = _format_datetime(event.starts_at, tz)
+    if event.ends_at is not None:
+        when += f" — {_format_datetime(event.ends_at, tz)}"
+    return "\n".join(
+        [
+            f"🚫 Отменено {escape(title)}, вы были записаны на участие:",
+            "",
+            f"🗓 {when}",
+            f"📍 {escape(event.location)}",
+        ]
+    )
 
 
 async def publish_event_announcement(
@@ -294,22 +322,27 @@ async def refresh_member_announcements(
 
 async def refresh_event_announcement(
     bot: Bot, session: AsyncSession, event: Event
-) -> None:
+) -> bool:
     """Живое обновление анонса (`editMessageText` по `announcement_message_id`,
     TZ §4.3 «RSVP»): пересчитывает счётчик подтвердивших и список их никнеймов.
     Используется хендлером RSVP (задача 2.6); в дальнейшем — редактированием/
     отменой мероприятия (2.7–2.8) и постфактум-корректировкой RSVP (3.2).
 
-    No-op, если анонс не публиковался (`announcement_message_id is None`).
-    `TelegramBadRequest` «message is not modified» гасится — параллельное
-    нажатие могло уже привести анонс в то же состояние.
+    Возвращает `True`, если анонс удалось перерисовать (или он и так был в
+    нужном состоянии), `False` — если публикации не было
+    (`announcement_message_id is None`) или проект пропал. `TelegramBadRequest`
+    «message is not modified» гасится — параллельное нажатие могло уже привести
+    анонс в то же состояние.
+
+    У отменённого мероприятия (задача 2.8) inline-кнопки RSVP убираются —
+    отмечаться уже незачем.
     """
     if event.announcement_message_id is None:
-        return
+        return False
 
     project = await session.get(Project, event.project_id)
     if project is None:
-        return
+        return False
     settings = await session.get(ProjectSettings, event.project_id)
     timezone = settings.timezone if settings is not None else DEFAULT_TIMEZONE
 
@@ -317,13 +350,19 @@ async def refresh_event_announcement(
     text = build_announcement_text(
         event, co_organizers=co_organizers, going=going, timezone=timezone
     )
+    keyboard = (
+        None
+        if event.status == EventStatus.CANCELLED
+        else build_rsvp_keyboard(event.id)
+    )
     try:
         await bot.edit_message_text(
             text=text,
             chat_id=project.tg_chat_id,
             message_id=event.announcement_message_id,
-            reply_markup=build_rsvp_keyboard(event.id),
+            reply_markup=keyboard,
         )
     except TelegramBadRequest as exc:
         if "not modified" not in str(exc).lower():
             raise
+    return True

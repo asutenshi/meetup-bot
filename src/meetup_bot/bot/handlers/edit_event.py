@@ -18,14 +18,16 @@ from aiogram.types import (
     Message,
     WebAppInfo,
 )
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meetup_bot.config import Settings
-from meetup_bot.db.enums import MembershipStatus
-from meetup_bot.db.models import Event, ProjectMembership, ProjectSettings, User
+from meetup_bot.db.models import Event, ProjectSettings
 from meetup_bot.services.event_announcement import DEFAULT_TIMEZONE, format_short_datetime
-from meetup_bot.services.events import list_manageable_events, user_is_project_admin
+from meetup_bot.services.events import (
+    list_manageable_events,
+    resolve_member_user_id,
+    user_is_project_admin,
+)
 from meetup_bot.services.projects import list_user_active_projects
 from meetup_bot.services.webapp_url import build_web_app_url
 
@@ -53,21 +55,6 @@ def _event_button_label(event: Event, timezone: str) -> str:
     return label
 
 
-async def _member_user_id(
-    session: AsyncSession, *, project_id: int, tg_user_id: int
-) -> int | None:
-    row = await session.scalar(
-        select(User.id)
-        .join(ProjectMembership, ProjectMembership.user_id == User.id)
-        .where(
-            ProjectMembership.project_id == project_id,
-            ProjectMembership.status == MembershipStatus.ACTIVE,
-            User.tg_user_id == tg_user_id,
-        )
-    )
-    return int(row) if row is not None else None
-
-
 def create_router() -> Router:
     router = Router(name="edit_event")
 
@@ -90,7 +77,7 @@ def create_router() -> Router:
         # несёт собственный контекст проекта в URL.
         buttons: list[list[InlineKeyboardButton]] = []
         for project in projects:
-            user_id = await _member_user_id(
+            user_id = await resolve_member_user_id(
                 session, project_id=project.id, tg_user_id=message.from_user.id
             )
             if user_id is None:
