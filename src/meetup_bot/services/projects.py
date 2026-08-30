@@ -143,6 +143,21 @@ async def ensure_membership(
     return membership, True
 
 
+async def get_or_create_project_settings(
+    session: AsyncSession, *, project_id: int
+) -> ProjectSettings:
+    """Возвращает `ProjectSettings` проекта, создавая строку с дефолтами, если её
+    почему-то нет (обычно она создаётся вместе с проектом в
+    [[get_or_create_project]]). Нужно `/settings` (задача 4.5), чтобы админ мог
+    менять пороги напоминаний/эскалации, час рассылки и таймзону, не заходя в БД."""
+    settings = await session.get(ProjectSettings, project_id)
+    if settings is None:
+        settings = ProjectSettings(project_id=project_id)
+        session.add(settings)
+        await session.flush()
+    return settings
+
+
 async def is_project_admin(session: AsyncSession, *, project_id: int, tg_user_id: int) -> bool:
     """Проверяет, что `tg_user_id` — активный админ проекта, `owner` или `admin`
     (TZ §6.1 "права ролей"). Используется там, где действие (например,

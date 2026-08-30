@@ -31,6 +31,7 @@ async def test_set_bot_commands_two_scoped_calls(bot: Bot, fake_bot_api: FakeBot
         "setup_registration",
         "set_topic",
         "unset_topic",
+        "settings",
         "all",
         "members",
         "remove_member",

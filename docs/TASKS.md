@@ -143,9 +143,13 @@
 - [x] **4.4 Джоба: эскалация организатору/админу.** Троттлинг раз в период.
       Рассылка — в тот же час `ProjectSettings.reminder_send_hour`, что и 4.3.
       (TZ §3.4 п.3)
-- [ ] **4.5 Настройка порогов `ProjectSettings`.** Минимальный UI/команды для
+- [x] **4.5 Настройка порогов `ProjectSettings`.** Минимальный UI/команды для
       админа (`reminder_days_threshold`, `missed_events_escalation_count`,
-      `timezone`, `reminder_send_hour`). (TZ §2.3; roadmap §7 Этап 4)
+      `timezone`, `reminder_send_hour`). Команда `/settings` в групповом чате
+      (только `role=admin`): без аргументов — список текущих значений, с
+      аргументами `<параметр> <значение>` — валидация и сохранение. Web App-экран
+      настроек для админа — отдельным пунктом в «Техническом долге». (TZ §2.3;
+      roadmap §7 Этап 4)
 
 ## Этап 5. Полировка
 
@@ -245,6 +249,19 @@
         список отказавшихся туда же, где сейчас собирается `going`.
       Финализацию явки (задача 4.2, по `status = going`) не трогает. (TZ §2.6,
       §4.3 «RSVP»)
+
+- [ ] **Настройка порогов `ProjectSettings` в Web App (задача 4.5).** Сейчас
+      единственный интерфейс — команда `/settings` в групповом чате
+      (`src/meetup_bot/bot/handlers/settings.py`). Roadmap (§7 Этап 4, TZ §2.3)
+      допускал и Web App-экран настроек проекта. Доработать: экран настроек в
+      Web App для админа (по `initData`-dependency, как остальные `/api/*`) с
+      полями `reminder_days_threshold`, `missed_events_escalation_count`,
+      `reminder_send_hour`, `timezone` (и, возможно, `all_command_throttle_seconds`),
+      `GET`/`PUT /api/projects/{id}/settings`. Валидацию значений (диапазоны,
+      разбор зоны IANA) вынести из хендлера `/settings` в общий сервис, чтобы не
+      дублировать. Команда `/settings` при этом остаётся как быстрый путь.
+      Осмысленно делать вместе с домашним экраном Web App (задача 2.9) или
+      экранами Этапа 3. (TZ §2.3; roadmap §7 Этап 4)
 
 ## Backlog (пост-MVP, вне текущей разбивки)
 
