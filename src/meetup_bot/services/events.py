@@ -70,6 +70,24 @@ async def list_manageable_events(
     return result
 
 
+async def resolve_member_user_id(
+    session: AsyncSession, *, project_id: int, tg_user_id: int
+) -> int | None:
+    """Внутренний `User.id` активного участника проекта по его `tg_user_id`
+    (`None`, если не участник). Нужен командам `/edit_event` и `/cancel_event`,
+    которые собирают мероприятия по всем проектам вызвавшего."""
+    row = await session.scalar(
+        select(User.id)
+        .join(ProjectMembership, ProjectMembership.user_id == User.id)
+        .where(
+            ProjectMembership.project_id == project_id,
+            ProjectMembership.status == MembershipStatus.ACTIVE,
+            User.tg_user_id == tg_user_id,
+        )
+    )
+    return int(row) if row is not None else None
+
+
 async def going_members(session: AsyncSession, event: Event) -> list[User]:
     """Активные участники проекта, подтвердившие участие (`EventRSVP.status =
     going`) — адресаты личных уведомлений об изменении/отмене мероприятия."""

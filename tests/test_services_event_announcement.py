@@ -21,6 +21,7 @@ from meetup_bot.db.models import (
 )
 from meetup_bot.services.event_announcement import (
     build_announcement_text,
+    build_event_cancelled_notification,
     build_rsvp_keyboard,
     refresh_event_announcement,
     refresh_member_announcements,
@@ -135,6 +136,31 @@ def test_announcement_falls_back_to_utc_on_bad_timezone() -> None:
     assert "14 сентября, 15:00" in text
 
 
+def test_announcement_marks_cancelled_at_the_bottom_and_drops_going_block() -> None:
+    text = build_announcement_text(
+        _event(status=EventStatus.CANCELLED),
+        co_organizers=[],
+        going=[_user(1, "Аня", "anya")],
+        timezone="Europe/Moscow",
+    )
+
+    assert text.rstrip().endswith("🚫 <b>Мероприятие отменено</b>")
+    assert "14 сентября, 18:00" in text
+    assert "📍 Парк Горького" in text
+    assert "✅ Участвует" not in text
+    assert "@anya" not in text
+
+
+def test_cancelled_notification_names_time_and_place() -> None:
+    text = build_event_cancelled_notification(
+        _event(title="Прогулка"), timezone="Europe/Moscow"
+    )
+
+    assert "🚫 Отменено Прогулка" in text
+    assert "🗓 14 сентября, 18:00" in text
+    assert "📍 Парк Горького" in text
+
+
 def test_rsvp_keyboard_callback_data() -> None:
     keyboard = build_rsvp_keyboard(42)
     datas = [b.callback_data for row in keyboard.inline_keyboard for b in row]
@@ -238,6 +264,23 @@ async def test_refresh_event_announcement_excludes_removed_member(
     assert "✅ Участвует: 1" in text
     assert "@anya" in text
     assert "@misha" not in text
+
+
+async def test_refresh_event_announcement_removes_keyboard_when_cancelled(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed_event(session_factory, status=EventStatus.CANCELLED)
+
+    async with session_factory() as session:
+        event = await session.get(Event, ids["event_id"])
+        assert event is not None
+        await refresh_event_announcement(bot, session, event)
+
+    edited = fake_bot_api.edited_messages[-1]
+    assert edited.reply_markup is None
+    assert "🚫 <b>Мероприятие отменено</b>" in (edited.text or "")
 
 
 async def test_refresh_member_announcements_edits_only_going_planned_events(
