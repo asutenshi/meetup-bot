@@ -11,6 +11,7 @@ from meetup_bot.bot.handlers import (
     new_event,
     rsvp,
     set_topic,
+    settings,
     setup_registration,
     start,
 )
@@ -24,12 +25,12 @@ def create_bot(settings: Settings) -> Bot:
 
 
 def create_dispatcher(
-    session_factory: async_sessionmaker[AsyncSession], settings: Settings | None = None
+    session_factory: async_sessionmaker[AsyncSession], app_settings: Settings | None = None
 ) -> Dispatcher:
     dispatcher = Dispatcher()
     # Конфиг доступен хендлерам как workflow-данные (аргумент `settings`).
     # `/new_event` строит по нему `web_app`-URL Mini App (TZ §3.8).
-    dispatcher["settings"] = settings
+    dispatcher["settings"] = app_settings
     dispatcher.update.outer_middleware(DbSessionMiddleware(session_factory))
     dispatcher.update.outer_middleware(AllThrottleMiddleware())
     dispatcher.include_router(chat_member.create_router())
@@ -37,6 +38,7 @@ def create_dispatcher(
     dispatcher.include_router(start.create_router())
     dispatcher.include_router(all_members.create_router())
     dispatcher.include_router(set_topic.create_router())
+    dispatcher.include_router(settings.create_router())
     dispatcher.include_router(admin_commands.create_router())
     dispatcher.include_router(new_event.create_router())
     dispatcher.include_router(edit_event.create_router())

@@ -31,6 +31,7 @@ GROUP_COMMANDS: list[BotCommand] = [
     ),
     BotCommand(command="set_topic", description="Привязать топик к категории сообщений"),
     BotCommand(command="unset_topic", description="Снять привязку категории от топика"),
+    BotCommand(command="settings", description="Пороги напоминаний и таймзона проекта"),
     BotCommand(command="all", description="Позвать всех зарегистрированных участников"),
     BotCommand(command="members", description="Список участников проекта"),
     BotCommand(command="remove_member", description="Удалить участника из проекта"),
