@@ -10,7 +10,7 @@ import {
   type EventFormMember,
 } from '../api/events';
 import { closeMiniApp } from '../telegram/init';
-import { Card, Field, PeopleList, PickerRow } from './components';
+import { Card, Field, PeopleList, PickerRow, TimeSelect } from './components';
 import { combineLocal, splitLocal, toIso, toLocalInput } from './datetime';
 import './form.css';
 
@@ -275,12 +275,12 @@ export function EventForm({ eventId }: { eventId: number | null }) {
                 invalid={Boolean(errors.starts_at)}
                 onChange={setStartDate}
               />
-              <input
-                className={`ef-input ef-time${errors.starts_at ? ' ef-input--invalid' : ''}`}
-                type="time"
-                aria-label="Время начала"
+              <TimeSelect
                 value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
+                invalid={Boolean(errors.starts_at)}
+                hourLabel="Час начала"
+                minuteLabel="Минуты начала"
+                onChange={setStartTime}
               />
             </div>
           </Field>
@@ -299,12 +299,12 @@ export function EventForm({ eventId }: { eventId: number | null }) {
                 }}
               />
               {endDate && (
-                <input
-                  className={`ef-input ef-time${errors.ends_at ? ' ef-input--invalid' : ''}`}
-                  type="time"
-                  aria-label="Время окончания"
+                <TimeSelect
                   value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
+                  invalid={Boolean(errors.ends_at)}
+                  hourLabel="Час окончания"
+                  minuteLabel="Минуты окончания"
+                  onChange={setEndTime}
                 />
               )}
             </div>

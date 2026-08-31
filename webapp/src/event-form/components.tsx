@@ -1,7 +1,7 @@
 import { useRef, type ReactNode } from 'react';
 
 import type { EventFormMember } from '../api/events';
-import { formatDate } from './datetime';
+import { formatDate, HOUR_OPTIONS, minuteOptions } from './datetime';
 
 /** Иконки заголовков карточек (16–17 px, цвет — var(--accent) через CSS). */
 const ICONS = {
@@ -75,9 +75,9 @@ export function Field({
  * (`opacity: 0`). Календарь остаётся нативным (ОС/браузер) — `input.showPicker()`
  * для `type="date"` открывает полноценный выбор и на десктопе тоже, — а внешний
  * вид по нашим токенам, так уходит слишком тёмный виджет при тёмном акценте.
- * Время вводится отдельным видимым `<input type="time">` (см. EventForm):
- * единый `datetime-local` для десктопа частично не редактируется — там
- * `showPicker()` открывает только календарь, а сегменты времени спрятаны.
+ * Время вводится отдельно (`TimeSelect`, см. EventForm): единый `datetime-local`
+ * на десктопе частично не редактируется — `showPicker()` открывает только
+ * календарь, а сегменты времени спрятаны.
  *
  * Реальный фокусируемый контрол и цель `<label>` — сам `<input>`; шеврон и
  * значение помечены `aria-hidden`.
@@ -152,6 +152,72 @@ export function PickerRow({
         onClick={openPicker}
         onChange={(e) => onChange(e.target.value)}
       />
+    </div>
+  );
+}
+
+/**
+ * Выбор времени двумя `<select>` (часы `00`…`23`, минуты шаг 5). Нативный
+ * `<input type="time">` рисует формат по локали браузера — на англоязычном
+ * клиенте это AM/PM и 24:30 не ввести. `<select>` с нашими подписями —
+ * гарантированно 24-часовой и одинаковый везде.
+ */
+export function TimeSelect({
+  id,
+  value,
+  invalid = false,
+  hourLabel,
+  minuteLabel,
+  onChange,
+}: {
+  id?: string;
+  /** Значение в формате `HH:MM` либо пустая строка. */
+  value: string;
+  invalid?: boolean;
+  hourLabel: string;
+  minuteLabel: string;
+  onChange: (value: string) => void;
+}) {
+  const [hour, minute] = value ? value.split(':') : ['', ''];
+
+  return (
+    <div className={`ef-time${invalid ? ' ef-time--invalid' : ''}`}>
+      <select
+        id={id}
+        className="ef-time__sel"
+        aria-label={hourLabel}
+        value={hour}
+        onChange={(e) =>
+          onChange(e.target.value ? `${e.target.value}:${minute || '00'}` : '')
+        }
+      >
+        <option value="" disabled>
+          чч
+        </option>
+        {HOUR_OPTIONS.map((h) => (
+          <option key={h} value={h}>
+            {h}
+          </option>
+        ))}
+      </select>
+      <span className="ef-time__colon" aria-hidden="true">
+        :
+      </span>
+      <select
+        className="ef-time__sel"
+        aria-label={minuteLabel}
+        value={minute}
+        onChange={(e) => onChange(`${hour || '00'}:${e.target.value}`)}
+      >
+        <option value="" disabled>
+          мм
+        </option>
+        {minuteOptions(minute).map((m) => (
+          <option key={m} value={m}>
+            {m}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

@@ -215,10 +215,38 @@ textarea.ef-input {
   min-width: 0;
 }
 
+/* Время — два <select> (чч : мм), а не <input type="time">: тот рисует формат
+   по локали браузера (AM/PM на англоязычном клиенте). Тёмная тема виджета —
+   через color-scheme на :root (tokens.css). */
 .ef-time {
-  width: 8rem;
-  /* Нативные сегменты чч:мм и выпадашка часов — по теме, а не по
-     prefers-color-scheme (color-scheme проставлен на :root в tokens.css). */
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ef-time__sel {
+  font: inherit;
+  font-size: 16px;
+  padding: 12px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--tg-bg);
+  color: var(--tg-text);
+}
+
+.ef-time__sel:focus {
+  outline: 2px solid var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.ef-time--invalid .ef-time__sel {
+  border-color: var(--tg-destructive);
+}
+
+.ef-time__colon {
+  color: var(--tg-hint);
+  font-weight: 600;
 }
 
 .ef-two {

@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { combineLocal, formatDate, splitLocal, toIso, toLocalInput } from './datetime';
+import {
+  combineLocal,
+  formatDate,
+  HOUR_OPTIONS,
+  minuteOptions,
+  splitLocal,
+  toIso,
+  toLocalInput,
+} from './datetime';
 
 describe('toLocalInput / toIso', () => {
   it('раскладывает ISO обратно в значение datetime-local в зоне устройства', () => {
@@ -37,6 +45,28 @@ describe('splitLocal / combineLocal', () => {
   it('split ∘ combine — тождество для валидного значения', () => {
     const { date, time } = splitLocal('2026-01-05T09:07');
     expect(combineLocal(date, time)).toBe('2026-01-05T09:07');
+  });
+});
+
+describe('время: опции select', () => {
+  it('часы — 24 штуки, 24-часовой формат', () => {
+    expect(HOUR_OPTIONS).toHaveLength(24);
+    expect(HOUR_OPTIONS[0]).toBe('00');
+    expect(HOUR_OPTIONS[14]).toBe('14');
+    expect(HOUR_OPTIONS[23]).toBe('23');
+  });
+
+  it('минуты по умолчанию — шаг 5', () => {
+    expect(minuteOptions()).toEqual([
+      '00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55',
+    ]);
+  });
+
+  it('нестандартную минуту добавляем в список по порядку', () => {
+    const opts = minuteOptions('37');
+    expect(opts).toContain('37');
+    expect(opts).toEqual([...opts].sort());
+    expect(opts).toHaveLength(13);
   });
 });
 

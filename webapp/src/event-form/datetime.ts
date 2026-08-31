@@ -1,7 +1,7 @@
 /*
   Дата и время в форме вводятся двумя полями: `<input type="date">` под нашей
-  строкой-пикером (`PickerRow`) и видимый `<input type="time">`. Внутри формы
-  склеиваем их в значение `datetime-local` (`combineLocal`) и переводим в ISO с
+  строкой-пикером (`PickerRow`) и время двумя `<select>` (`TimeSelect`). Внутри
+  формы склеиваем их в значение `datetime-local` (`combineLocal`) и в ISO с
   зоной устройства организатора на отправке (`toIso`); при предзаполнении —
   обратный путь (`toLocalInput` → `splitLocal`).
 */
@@ -26,6 +26,29 @@ const WEEKDAYS = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'] as con
 
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const LOCAL_RE = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/;
+
+/** Шаг минут в выпадашке времени. */
+const MINUTE_STEP = 5;
+
+/** Часы для `<select>` времени — всегда 24-часовой формат, `00`…`23`. */
+export const HOUR_OPTIONS: readonly string[] = Array.from({ length: 24 }, (_, i) =>
+  String(i).padStart(2, '0'),
+);
+
+/**
+ * Минуты для `<select>` времени: `00`, `05`, … `55`. Если текущее значение не
+ * кратно шагу (мероприятие создано раньше нативным `datetime-local`) — добавляем
+ * его в список, чтобы `<select>` не «съел» время при редактировании.
+ */
+export function minuteOptions(current?: string): string[] {
+  const base = Array.from({ length: 60 / MINUTE_STEP }, (_, i) =>
+    String(i * MINUTE_STEP).padStart(2, '0'),
+  );
+  if (current && /^\d{2}$/.test(current) && !base.includes(current)) {
+    return [...base, current].sort();
+  }
+  return base;
+}
 
 /** `datetime-local` → ISO-строка с зоной устройства организатора. */
 export function toIso(value: string): string {
