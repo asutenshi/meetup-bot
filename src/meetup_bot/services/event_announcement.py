@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meetup_bot.db.enums import EventStatus, MembershipStatus, RSVPStatus, TopicCategory
@@ -149,14 +149,20 @@ def build_announcement_text(
     *,
     co_organizers: list[User],
     going: list[User],
+    not_going: list[User],
     timezone: str,
 ) -> str:
-    """HTML-текст анонса: все поля мероприятия + счётчик подтвердивших и их
-    никнеймы (TZ §4.3 «RSVP»). Список «не участвую» в анонсе не показывается.
+    """HTML-текст анонса: все поля мероприятия + два списка RSVP — «участвует» и
+    «не участвует» — с никнеймами (TZ §4.3 «RSVP»). Третья группа (активные
+    участники, ещё не нажавшие ни одну кнопку) в анонсе не показывается.
 
-    Для отменённого мероприятия (`status = cancelled`, задача 2.8) блок со
-    счётчиком подтвердивших опускается, а вместо него снизу — выделенная пометка
-    «Мероприятие отменено» (RSVP уже неактуален; кнопки снимает
+    `seats_limit` — мягкий ориентир, а не потолок: при `len(going) >= seats_limit`
+    к счётчику добавляется пометка «цель набрана», но RSVP не блокируется
+    (хендлер лимит не проверяет).
+
+    Для отменённого мероприятия (`status = cancelled`, задача 2.8) оба списка
+    RSVP опускаются, а вместо них снизу — выделенная пометка «Мероприятие
+    отменено» (RSVP уже неактуален; кнопки снимает
     `refresh_event_announcement`)."""
     tz = _resolve_tz(timezone)
     cancelled = event.status == EventStatus.CANCELLED
@@ -193,10 +199,20 @@ def build_announcement_text(
     else:
         lines.append("")
         if event.seats_limit is not None:
-            lines.append(f"✅ Участвует: {len(going)}/{event.seats_limit}")
+            counter = f"✅ Участвует: {len(going)}/{event.seats_limit}"
+            if len(going) >= event.seats_limit:
+                counter += " — цель набрана 🎯"
+            lines.append(counter)
         else:
             lines.append(f"✅ Участвует: {len(going)}")
         lines.extend(f"{i}. {_mention(u)}" for i, u in enumerate(going, start=1))
+
+        if not_going:
+            lines.append("")
+            lines.append(f"❌ Не участвует: {len(not_going)}")
+            lines.extend(
+                f"{i}. {_mention(u)}" for i, u in enumerate(not_going, start=1)
+            )
 
     return "\n".join(lines)
 
@@ -334,6 +350,7 @@ async def publish_event_announcement(
     chat_id: int,
     co_organizers: list[User],
     going: list[User],
+    not_going: list[User],
     timezone: str,
 ) -> int:
     """Публикует анонс в топик категории `events` проекта и возвращает
@@ -345,7 +362,11 @@ async def publish_event_announcement(
         chat_id=chat_id,
         message_thread_id=thread_id,
         text=build_announcement_text(
-            event, co_organizers=co_organizers, going=going, timezone=timezone
+            event,
+            co_organizers=co_organizers,
+            going=going,
+            not_going=not_going,
+            timezone=timezone,
         ),
         reply_markup=build_rsvp_keyboard(event.id),
     )
@@ -354,11 +375,11 @@ async def publish_event_announcement(
 
 async def _announcement_participants(
     session: AsyncSession, event: Event
-) -> tuple[list[User], list[User]]:
-    """`(co_organizers, going)` для перерисовки анонса: со-организаторы в порядке
-    добавления, подтвердившие — в порядке ответа (кто раньше нажал «Участвую»).
+) -> tuple[list[User], list[User], list[User]]:
+    """`(co_organizers, going, not_going)` для перерисовки анонса: со-организаторы
+    в порядке добавления, ответившие — в порядке ответа (кто раньше нажал кнопку).
 
-    В обоих списках — только активные участники проекта: удалённый через
+    Во всех трёх списках — только активные участники проекта: удалённый через
     `/remove_member` человек пропадает из анонса при ближайшей перерисовке
     (а `refresh_member_announcements` вызывает её сразу после удаления)."""
     active_member = (
@@ -375,19 +396,21 @@ async def _announcement_participants(
             .order_by(EventCoOrganizer.id)
         )
     )
-    going = list(
-        await session.scalars(
+    def _rsvp_users(status: RSVPStatus) -> Select[tuple[User]]:
+        return (
             select(User)
             .join(EventRSVP, EventRSVP.user_id == User.id)
             .join(ProjectMembership, active_member)
             .where(
                 EventRSVP.event_id == event.id,
-                EventRSVP.status == RSVPStatus.GOING,
+                EventRSVP.status == status,
             )
             .order_by(EventRSVP.responded_at, EventRSVP.id)
         )
-    )
-    return co_organizers, going
+
+    going = list(await session.scalars(_rsvp_users(RSVPStatus.GOING)))
+    not_going = list(await session.scalars(_rsvp_users(RSVPStatus.NOT_GOING)))
+    return co_organizers, going, not_going
 
 
 async def refresh_member_announcements(
@@ -422,7 +445,8 @@ async def refresh_event_announcement(
     bot: Bot, session: AsyncSession, event: Event
 ) -> bool:
     """Живое обновление анонса (`editMessageText` по `announcement_message_id`,
-    TZ §4.3 «RSVP»): пересчитывает счётчик подтвердивших и список их никнеймов.
+    TZ §4.3 «RSVP»): пересчитывает счётчик подтвердивших и оба списка никнеймов
+    — «участвует» и «не участвует».
     Используется хендлером RSVP (задача 2.6); в дальнейшем — редактированием/
     отменой мероприятия (2.7–2.8) и постфактум-корректировкой RSVP (3.2).
 
@@ -444,9 +468,13 @@ async def refresh_event_announcement(
     settings = await session.get(ProjectSettings, event.project_id)
     timezone = settings.timezone if settings is not None else DEFAULT_TIMEZONE
 
-    co_organizers, going = await _announcement_participants(session, event)
+    co_organizers, going, not_going = await _announcement_participants(session, event)
     text = build_announcement_text(
-        event, co_organizers=co_organizers, going=going, timezone=timezone
+        event,
+        co_organizers=co_organizers,
+        going=going,
+        not_going=not_going,
+        timezone=timezone,
     )
     keyboard = (
         None

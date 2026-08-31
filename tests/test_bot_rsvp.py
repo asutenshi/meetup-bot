@@ -237,6 +237,33 @@ async def test_two_members_going_are_both_listed_in_order(
     assert text.index(misha_mention) < text.index("@anya")
 
 
+async def test_not_going_click_shows_second_block_in_announcement(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed(session_factory)
+    dispatcher = create_dispatcher(session_factory)
+
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(_rsvp_callback(ids["event_id"], "going")),
+    )
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(
+            _member_callback(ids["event_id"], "not_going", update_id=2)
+        ),
+    )
+
+    text = fake_bot_api.edited_messages[-1].text or ""
+    assert "✅ Участвует: 1" in text
+    assert "@anya" in text
+    assert "❌ Не участвует: 1" in text
+    assert f'<a href="tg://user?id={_MISHA_TG_ID}">Миша</a>' in text
+    assert text.index("❌ Не участвует") > text.index("@anya")
+
+
 async def test_non_member_click_is_rejected(
     bot: Bot,
     fake_bot_api: FakeBotApi,
