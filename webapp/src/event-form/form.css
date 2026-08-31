@@ -203,6 +203,24 @@ textarea.ef-input {
   outline-color: color-mix(in srgb, var(--tg-destructive) 25%, transparent);
 }
 
+/* Дата (PickerRow) + отдельное поле времени: на десктопе единый datetime-local
+   не даёт править время, поэтому время — видимый нативный контрол. */
+.ef-datetime {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ef-datetime .ef-picker {
+  min-width: 0;
+}
+
+.ef-time {
+  width: 8rem;
+  /* Нативные сегменты чч:мм и выпадашка часов — по теме, а не по
+     prefers-color-scheme (color-scheme проставлен на :root в tokens.css). */
+}
+
 .ef-two {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -11,7 +11,7 @@ import {
 } from '../api/events';
 import { closeMiniApp } from '../telegram/init';
 import { Card, Field, PeopleList, PickerRow } from './components';
-import { toIso, toLocalInput } from './datetime';
+import { combineLocal, splitLocal, toIso, toLocalInput } from './datetime';
 import './form.css';
 
 type Loaded = {
@@ -40,8 +40,10 @@ export function EventForm({ eventId }: { eventId: number | null }) {
   const editing = eventId !== null;
   const [load, setLoad] = useState<LoadState>({ kind: 'loading' });
 
-  const [startsAt, setStartsAt] = useState('');
-  const [endsAt, setEndsAt] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [endTime, setEndTime] = useState('');
   const [location, setLocation] = useState('');
   const [description, setDescription] = useState('');
   const [budget, setBudget] = useState('');
@@ -52,6 +54,11 @@ export function EventForm({ eventId }: { eventId: number | null }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [done, setDone] = useState<{ notified: number } | null>(null);
+
+  // Отдельные поля даты и времени склеиваем в значение datetime-local.
+  const startsAt = combineLocal(startDate, startTime);
+  const endsAt = combineLocal(endDate, endTime);
+  const endPartial = Boolean(endDate) !== Boolean(endTime);
 
   useEffect(() => {
     let alive = true;
@@ -80,8 +87,14 @@ export function EventForm({ eventId }: { eventId: number | null }) {
             kind: 'ready',
             data: { members: context.members, projectName: context.project_name },
           });
-          setStartsAt(toLocalInput(context.event.starts_at));
-          setEndsAt(context.event.ends_at ? toLocalInput(context.event.ends_at) : '');
+          const start = splitLocal(toLocalInput(context.event.starts_at));
+          setStartDate(start.date);
+          setStartTime(start.time);
+          if (context.event.ends_at) {
+            const end = splitLocal(toLocalInput(context.event.ends_at));
+            setEndDate(end.date);
+            setEndTime(end.time);
+          }
           setLocation(context.event.location);
           setDescription(context.event.description);
           setBudget(context.event.budget_per_person ?? '');
@@ -170,8 +183,10 @@ export function EventForm({ eventId }: { eventId: number | null }) {
 
   function validate(): Errors {
     const next: Errors = {};
-    if (!startsAt) next.starts_at = 'Укажите дату и время начала';
-    if (endsAt && startsAt && new Date(endsAt) <= new Date(startsAt)) {
+    if (!startDate || !startTime) next.starts_at = 'Укажите дату и время начала';
+    if (endPartial) {
+      next.ends_at = 'Укажите и дату, и время окончания';
+    } else if (endsAt && startsAt && new Date(endsAt) <= new Date(startsAt)) {
       next.ends_at = 'Окончание должно быть позже начала';
     }
     if (!location.trim()) next.location = 'Укажите место';
@@ -194,7 +209,7 @@ export function EventForm({ eventId }: { eventId: number | null }) {
 
     const body: CreateEventRequest = {
       starts_at: toIso(startsAt),
-      ends_at: endsAt ? toIso(endsAt) : null,
+      ends_at: endDate && endTime ? toIso(endsAt) : null,
       location: location.trim(),
       description: description.trim(),
       budget_per_person: budget.trim() ? normalizeNumber(budget) : null,
@@ -251,25 +266,48 @@ export function EventForm({ eventId }: { eventId: number | null }) {
         )}
 
         <Card icon="when" title="Когда">
-          <Field label="Начало" htmlFor="ef-starts" error={errors.starts_at}>
-            <PickerRow
-              id="ef-starts"
-              value={startsAt}
-              placeholder="Выбрать дату и время"
-              invalid={Boolean(errors.starts_at)}
-              onChange={setStartsAt}
-            />
+          <Field label="Начало" htmlFor="ef-start-date" error={errors.starts_at}>
+            <div className="ef-datetime">
+              <PickerRow
+                id="ef-start-date"
+                value={startDate}
+                placeholder="Выбрать дату"
+                invalid={Boolean(errors.starts_at)}
+                onChange={setStartDate}
+              />
+              <input
+                className={`ef-input ef-time${errors.starts_at ? ' ef-input--invalid' : ''}`}
+                type="time"
+                aria-label="Время начала"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+              />
+            </div>
           </Field>
-          <Field label="Окончание" htmlFor="ef-ends" optional error={errors.ends_at}>
-            <PickerRow
-              id="ef-ends"
-              value={endsAt}
-              placeholder="Добавить дату окончания"
-              min={startsAt || undefined}
-              invalid={Boolean(errors.ends_at)}
-              clearable
-              onChange={setEndsAt}
-            />
+          <Field label="Окончание" htmlFor="ef-end-date" optional error={errors.ends_at}>
+            <div className="ef-datetime">
+              <PickerRow
+                id="ef-end-date"
+                value={endDate}
+                placeholder="Добавить дату окончания"
+                min={startDate || undefined}
+                invalid={Boolean(errors.ends_at)}
+                onChange={setEndDate}
+                onClear={() => {
+                  setEndDate('');
+                  setEndTime('');
+                }}
+              />
+              {endDate && (
+                <input
+                  className={`ef-input ef-time${errors.ends_at ? ' ef-input--invalid' : ''}`}
+                  type="time"
+                  aria-label="Время окончания"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                />
+              )}
+            </div>
           </Field>
         </Card>
 

@@ -1,7 +1,7 @@
 import { useRef, type ReactNode } from 'react';
 
 import type { EventFormMember } from '../api/events';
-import { formatDateTime } from './datetime';
+import { formatDate } from './datetime';
 
 /** Иконки заголовков карточек (16–17 px, цвет — var(--accent) через CSS). */
 const ICONS = {
@@ -70,12 +70,17 @@ export function Field({
 }
 
 /**
- * Строка-пикер даты и времени (PickerRow из WEBAPP_DESIGN.md): своя строка с
- * человекочитаемым значением и шевроном поверх нативного `datetime-local`
- * (opacity 0). Календарь/часы остаются нативными (ОС), а внешний вид — по нашим
- * токенам, так уходит и слишком тёмный виджет при тёмном акценте, и «только
- * дата без времени» на узком десктопе. Реальный фокусируемый контрол и цель
- * `<label>` — сам `<input>`; шеврон и значение помечены `aria-hidden`.
+ * Строка-пикер даты (PickerRow из WEBAPP_DESIGN.md): своя строка с
+ * человекочитаемым значением и шевроном поверх нативного `<input type="date">`
+ * (`opacity: 0`). Календарь остаётся нативным (ОС/браузер) — `input.showPicker()`
+ * для `type="date"` открывает полноценный выбор и на десктопе тоже, — а внешний
+ * вид по нашим токенам, так уходит слишком тёмный виджет при тёмном акценте.
+ * Время вводится отдельным видимым `<input type="time">` (см. EventForm):
+ * единый `datetime-local` для десктопа частично не редактируется — там
+ * `showPicker()` открывает только календарь, а сегменты времени спрятаны.
+ *
+ * Реальный фокусируемый контрол и цель `<label>` — сам `<input>`; шеврон и
+ * значение помечены `aria-hidden`.
  */
 export function PickerRow({
   id,
@@ -83,16 +88,18 @@ export function PickerRow({
   placeholder,
   min,
   invalid = false,
-  clearable = false,
   onChange,
+  onClear,
 }: {
   id?: string;
+  /** Значение в формате `YYYY-MM-DD`. */
   value: string;
   placeholder: string;
   min?: string;
   invalid?: boolean;
-  clearable?: boolean;
   onChange: (value: string) => void;
+  /** Показать кнопку очистки (для необязательной даты). */
+  onClear?: () => void;
 }) {
   const nativeRef = useRef<HTMLInputElement>(null);
 
@@ -116,14 +123,14 @@ export function PickerRow({
         className={`ef-picker__face${filled ? '' : ' ef-picker__face--empty'}`}
         aria-hidden="true"
       >
-        {filled ? formatDateTime(value) : placeholder}
+        {filled ? formatDate(value) : placeholder}
       </span>
-      {clearable && filled && (
+      {onClear && filled && (
         <button
           type="button"
           className="ef-picker__clear"
           aria-label="Убрать дату"
-          onClick={() => onChange('')}
+          onClick={onClear}
         >
           <svg viewBox="0 0 20 20" aria-hidden="true">
             <path d="M5 5l10 10M15 5L5 15" />
@@ -139,7 +146,7 @@ export function PickerRow({
         ref={nativeRef}
         id={id}
         className="ef-picker__native"
-        type="datetime-local"
+        type="date"
         value={value}
         min={min}
         onClick={openPicker}

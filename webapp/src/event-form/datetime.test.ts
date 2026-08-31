@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatDateTime, toIso, toLocalInput } from './datetime';
+import { combineLocal, formatDate, splitLocal, toIso, toLocalInput } from './datetime';
 
 describe('toLocalInput / toIso', () => {
   it('раскладывает ISO обратно в значение datetime-local в зоне устройства', () => {
@@ -14,19 +14,42 @@ describe('toLocalInput / toIso', () => {
   });
 });
 
-describe('formatDateTime', () => {
-  it('форматирует дату и время с днём недели', () => {
+describe('splitLocal / combineLocal', () => {
+  it('splitLocal делит datetime-local на дату и время', () => {
+    expect(splitLocal('2026-09-14T18:00')).toEqual({ date: '2026-09-14', time: '18:00' });
+    expect(splitLocal('2026-09-14T18:00:00')).toEqual({ date: '2026-09-14', time: '18:00' });
+  });
+
+  it('splitLocal на пустой/битой строке → пустые части', () => {
+    expect(splitLocal('')).toEqual({ date: '', time: '' });
+    expect(splitLocal('2026-09-14')).toEqual({ date: '', time: '' });
+  });
+
+  it('combineLocal склеивает дату и время', () => {
+    expect(combineLocal('2026-09-14', '18:00')).toBe('2026-09-14T18:00');
+  });
+
+  it('combineLocal без даты → пустая строка, без времени → начало суток', () => {
+    expect(combineLocal('', '18:00')).toBe('');
+    expect(combineLocal('2026-09-14', '')).toBe('2026-09-14T00:00');
+  });
+
+  it('split ∘ combine — тождество для валидного значения', () => {
+    const { date, time } = splitLocal('2026-01-05T09:07');
+    expect(combineLocal(date, time)).toBe('2026-01-05T09:07');
+  });
+});
+
+describe('formatDate', () => {
+  it('форматирует дату с днём недели', () => {
     // 14 сентября 2026 — понедельник.
-    expect(formatDateTime('2026-09-14T18:00')).toBe('14 сентября 2026, пн · 18:00');
+    expect(formatDate('2026-09-14')).toBe('14 сентября 2026, пн');
   });
 
-  it('принимает значение с секундами', () => {
-    expect(formatDateTime('2026-09-14T18:00:00')).toBe('14 сентября 2026, пн · 18:00');
-  });
-
-  it('пустой ввод и мусор → пустая строка', () => {
-    expect(formatDateTime('')).toBe('');
-    expect(formatDateTime('завтра')).toBe('');
-    expect(formatDateTime('2026-13-40T99:99')).toBe('');
+  it('пустой ввод, время и переполнение → пустая строка', () => {
+    expect(formatDate('')).toBe('');
+    expect(formatDate('2026-09-14T18:00')).toBe('');
+    expect(formatDate('2026-02-30')).toBe('');
+    expect(formatDate('2026-13-01')).toBe('');
   });
 });

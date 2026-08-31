@@ -1,8 +1,9 @@
 /*
-  Работа со значениями `<input type="datetime-local">`: строка вида
-  `2026-09-14T18:00` без зоны. ISO с зоной устройства организатора получаем на
-  отправке (`toIso`), обратно раскладываем на предзаполнении (`toLocalInput`).
-  `formatDateTime` — человекочитаемая подпись для PickerRow.
+  Дата и время в форме вводятся двумя полями: `<input type="date">` под нашей
+  строкой-пикером (`PickerRow`) и видимый `<input type="time">`. Внутри формы
+  склеиваем их в значение `datetime-local` (`combineLocal`) и переводим в ISO с
+  зоной устройства организатора на отправке (`toIso`); при предзаполнении —
+  обратный путь (`toLocalInput` → `splitLocal`).
 */
 
 const MONTHS = [
@@ -23,7 +24,8 @@ const MONTHS = [
 /** `Date.getDay()` → короткое имя дня недели (0 — воскресенье). */
 const WEEKDAYS = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'] as const;
 
-const LOCAL_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/;
+const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const LOCAL_RE = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/;
 
 /** `datetime-local` → ISO-строка с зоной устройства организатора. */
 export function toIso(value: string): string {
@@ -40,27 +42,38 @@ export function toLocalInput(iso: string): string {
   );
 }
 
+/** Значение `datetime-local` → части для отдельных полей даты и времени. */
+export function splitLocal(local: string): { date: string; time: string } {
+  const match = LOCAL_RE.exec(local);
+  return match ? { date: match[1], time: match[2] } : { date: '', time: '' };
+}
+
 /**
- * Значение `datetime-local` → подпись для строки-пикера, например
- * «14 сентября 2026, сб · 18:00». Парсим строку сами (формат фиксирован), без
- * `Intl`/повторного разбора зоны. Пустой ввод или мусор → пустая строка.
+ * Части полей даты и времени → значение `datetime-local`. Нет даты — пустая
+ * строка (нечего отправлять); дата без времени — начало суток.
  */
-export function formatDateTime(localValue: string): string {
-  const match = LOCAL_RE.exec(localValue);
+export function combineLocal(date: string, time: string): string {
+  if (!date) return '';
+  return `${date}T${time || '00:00'}`;
+}
+
+/**
+ * `2026-09-14` → «14 сентября 2026, сб» — подпись для строки-пикера. Парсим
+ * сами (формат фиксирован), отсекаем переполнение («2026-02-30»). Пусто/мусор →
+ * пустая строка.
+ */
+export function formatDate(date: string): string {
+  const match = DATE_RE.exec(date);
   if (!match) return '';
-  const [, year, month, day, hh, mm] = match;
+  const [, year, month, day] = match;
   const monthIndex = Number(month) - 1;
-  const date = new Date(Number(year), monthIndex, Number(day));
-  // Отсекаем переполнение («2026-13-40», «2026-02-30»): Date молча переносит на
-  // следующий месяц, а нам нужен ровно тот день, что во вводе.
+  const parsed = new Date(Number(year), monthIndex, Number(day));
   if (
-    date.getFullYear() !== Number(year) ||
-    date.getMonth() !== monthIndex ||
-    date.getDate() !== Number(day) ||
-    Number(hh) > 23 ||
-    Number(mm) > 59
+    parsed.getFullYear() !== Number(year) ||
+    parsed.getMonth() !== monthIndex ||
+    parsed.getDate() !== Number(day)
   ) {
     return '';
   }
-  return `${Number(day)} ${MONTHS[monthIndex]} ${year}, ${WEEKDAYS[date.getDay()]} · ${hh}:${mm}`;
+  return `${Number(day)} ${MONTHS[monthIndex]} ${year}, ${WEEKDAYS[parsed.getDay()]}`;
 }
