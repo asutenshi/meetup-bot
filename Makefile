@@ -3,7 +3,7 @@
 .PHONY: help up down restart redeploy migrate logs logs-worker logs-all ps psql \
 	webhook-set webhook-info webhook-delete health smoke \
 	check lint typecheck test \
-	webapp-install webapp-dev webapp-build webapp-check openapi
+	webapp-install webapp-dev webapp-build webapp-test webapp-check openapi
 
 help: ## Показать список целей
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -69,8 +69,11 @@ webapp-dev: ## Dev-сервер Vite (нужен запущенный бэкен
 webapp-build: ## Собрать Web App в webapp/dist (её раздаёт бэкенд под /app)
 	cd webapp && npm run build
 
-webapp-check: ## Проверки Web App как в CI (tsc + vite build)
-	cd webapp && npm run build
+webapp-test: ## Юнит-тесты Web App (vitest)
+	cd webapp && npm test
+
+webapp-check: ## Проверки Web App как в CI (vitest + tsc + vite build)
+	cd webapp && npm test && npm run build
 
 openapi: ## Пересобрать webapp/src/api/schema.ts из OpenAPI-схемы FastAPI
 	uv run python scripts/dump_openapi.py webapp/openapi.json

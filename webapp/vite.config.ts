@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
@@ -12,6 +13,11 @@ export default defineConfig({
     // Стабильные имена без хеша не нужны — StaticFiles отдаёт с ETag, а
     // index.html не кешируется агрессивно (html=True в StaticFiles).
     emptyOutDir: true,
+  },
+  test: {
+    // Тестируем чистые хелперы (форматирование даты) — DOM не нужен.
+    environment: 'node',
+    include: ['src/**/*.test.ts'],
   },
   server: {
     port: 5173,

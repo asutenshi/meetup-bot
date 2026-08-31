@@ -10,7 +10,8 @@ import {
   type EventFormMember,
 } from '../api/events';
 import { closeMiniApp } from '../telegram/init';
-import { Card, Field, PeopleList } from './components';
+import { Card, Field, PeopleList, PickerRow } from './components';
+import { toIso, toLocalInput } from './datetime';
 import './form.css';
 
 type Loaded = {
@@ -29,21 +30,6 @@ type LoadState =
 type Errors = Partial<
   Record<'starts_at' | 'ends_at' | 'location' | 'description' | 'budget' | 'seats', string>
 >;
-
-/** `datetime-local` → ISO-строка с зоной устройства организатора. */
-function toIso(value: string): string {
-  return new Date(value).toISOString();
-}
-
-/** ISO-строка → значение `datetime-local` в зоне устройства (для предзаполнения). */
-function toLocalInput(iso: string): string {
-  const d = new Date(iso);
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return (
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
-    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
-  );
-}
 
 /** «1250,5» → «1250.5»: запятую как десятичный разделитель приводим к точке. */
 function normalizeNumber(value: string): string {
@@ -266,21 +252,23 @@ export function EventForm({ eventId }: { eventId: number | null }) {
 
         <Card icon="when" title="Когда">
           <Field label="Начало" htmlFor="ef-starts" error={errors.starts_at}>
-            <input
+            <PickerRow
               id="ef-starts"
-              className={`ef-input${errors.starts_at ? ' ef-input--invalid' : ''}`}
-              type="datetime-local"
               value={startsAt}
-              onChange={(e) => setStartsAt(e.target.value)}
+              placeholder="Выбрать дату и время"
+              invalid={Boolean(errors.starts_at)}
+              onChange={setStartsAt}
             />
           </Field>
           <Field label="Окончание" htmlFor="ef-ends" optional error={errors.ends_at}>
-            <input
+            <PickerRow
               id="ef-ends"
-              className={`ef-input${errors.ends_at ? ' ef-input--invalid' : ''}`}
-              type="datetime-local"
               value={endsAt}
-              onChange={(e) => setEndsAt(e.target.value)}
+              placeholder="Добавить дату окончания"
+              min={startsAt || undefined}
+              invalid={Boolean(errors.ends_at)}
+              clearable
+              onChange={setEndsAt}
             />
           </Field>
         </Card>

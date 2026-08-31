@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 
 import type { EventFormMember } from '../api/events';
+import { formatDateTime } from './datetime';
 
 /** Иконки заголовков карточек (16–17 px, цвет — var(--accent) через CSS). */
 const ICONS = {
@@ -64,6 +65,86 @@ export function Field({
       </label>
       {children}
       {error && <span className="ef-error">{error}</span>}
+    </div>
+  );
+}
+
+/**
+ * Строка-пикер даты и времени (PickerRow из WEBAPP_DESIGN.md): своя строка с
+ * человекочитаемым значением и шевроном поверх нативного `datetime-local`
+ * (opacity 0). Календарь/часы остаются нативными (ОС), а внешний вид — по нашим
+ * токенам, так уходит и слишком тёмный виджет при тёмном акценте, и «только
+ * дата без времени» на узком десктопе. Реальный фокусируемый контрол и цель
+ * `<label>` — сам `<input>`; шеврон и значение помечены `aria-hidden`.
+ */
+export function PickerRow({
+  id,
+  value,
+  placeholder,
+  min,
+  invalid = false,
+  clearable = false,
+  onChange,
+}: {
+  id?: string;
+  value: string;
+  placeholder: string;
+  min?: string;
+  invalid?: boolean;
+  clearable?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const nativeRef = useRef<HTMLInputElement>(null);
+
+  function openPicker(): void {
+    const el = nativeRef.current;
+    if (el && typeof el.showPicker === 'function') {
+      try {
+        el.showPicker();
+      } catch {
+        // showPicker требует жеста пользователя / не поддержан — на телефоне
+        // нативный виджет и так откроется по тапу на сам input.
+      }
+    }
+  }
+
+  const filled = value !== '';
+
+  return (
+    <div className={`ef-picker${invalid ? ' ef-picker--invalid' : ''}`}>
+      <span
+        className={`ef-picker__face${filled ? '' : ' ef-picker__face--empty'}`}
+        aria-hidden="true"
+      >
+        {filled ? formatDateTime(value) : placeholder}
+      </span>
+      {clearable && filled && (
+        <button
+          type="button"
+          className="ef-picker__clear"
+          aria-label="Убрать дату"
+          onClick={() => onChange('')}
+        >
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M5 5l10 10M15 5L5 15" />
+          </svg>
+        </button>
+      )}
+      <span className="ef-picker__chev" aria-hidden="true">
+        <svg viewBox="0 0 20 20">
+          <path d="M7.5 4l6 6-6 6" />
+        </svg>
+      </span>
+      <input
+        ref={nativeRef}
+        id={id}
+        className="ef-picker__native"
+        type="datetime-local"
+        value={value}
+        min={min}
+        onClick={openPicker}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </div>
   );
 }
