@@ -13,12 +13,23 @@
 Экраны:
 
 - **Форма создания мероприятия** (TASKS.md 2.5) — `src/event-form/`. Своя
-  мини-библиотека компонентов (`Card`/`Field`/`PeopleList`, `components.tsx` +
-  `form.css`) поверх токенов, без `telegram-ui` кроме `AppRoot`. Загружает
-  `GET /api/events/context` (название проекта + участники для со-организаторов),
-  шлёт `POST /api/events`. `App.tsx` показывает форму, если есть `initData` и
-  `?project`; иначе — экран-подсказка. Роутинг между экранами и домашний
-  хаб — задача 2.9.
+  мини-библиотека компонентов (`Card`/`Field`/`PeopleList`/`PickerRow`,
+  `components.tsx` + `form.css`) поверх токенов, без `telegram-ui` кроме `AppRoot`.
+  Загружает `GET /api/events/context` (название проекта + участники для
+  со-организаторов), шлёт `POST /api/events`. `App.tsx` показывает форму, если
+  есть `initData` и `?project`; иначе — экран-подсказка. Роутинг между экранами
+  и домашний хаб — задача 2.9.
+  - **Дата и время — два поля.** «Когда» разбито на дату и время. Дата —
+    `PickerRow`: своя строка (значение «14 сентября 2026, сб» + шеврон, по
+    токенам темы) поверх нативного `<input type="date">` с `opacity: 0`; тап
+    открывает нативный календарь (`input.showPicker()` — на десктопе тоже
+    полноценно). Время — `TimeSelect`: два `<select>` (чч `00`–`23`, мм шаг 5).
+    Единый `datetime-local` не подошёл (на десктопе `showPicker()` открывает
+    только календарь, сегменты времени недоступны), `<input type="time">` рисует
+    12/24-часовой формат по локали браузера. `color-scheme` на `:root`
+    (`theme/tokens.css`) привязан к теме Telegram, чтобы нативные виджеты не были
+    светлыми на тёмном фоне. Склейка/разбор `datetime-local` ↔ поля ↔ ISO —
+    `event-form/datetime.ts` (покрыто тестами).
 
 ## Команды
 
@@ -28,10 +39,12 @@
 | `npm run dev` | dev-сервер Vite на `:5173`, `/api` и `/health` проксируются на бэкенд `:8080` |
 | `npm run build` | `tsc -b` (типы) + `vite build` → `dist/` |
 | `npm run preview` | локальный предпросмотр `dist/` |
+| `npm test` | юнит-тесты (`vitest run`); `npm run test:watch` — в watch-режиме |
 | `npm run gen:api` | сгенерировать `src/api/schema.ts` из `./openapi.json` |
 
 Из корня репозитория: `make webapp-install`, `make webapp-dev`, `make webapp-build`,
-`make openapi`.
+`make webapp-test`, `make openapi`. `make webapp-check` — то же, что CI (vitest +
+tsc + vite build).
 
 ## Как это связано с бэкендом
 
