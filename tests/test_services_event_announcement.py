@@ -54,7 +54,7 @@ def _user(tg_user_id: int, first_name: str, username: str | None = None) -> User
 
 def test_announcement_lists_time_place_description_and_zero_counter() -> None:
     text = build_announcement_text(
-        _event(), co_organizers=[], going=[], timezone="Europe/Moscow"
+        _event(), co_organizers=[], going=[], not_going=[], timezone="Europe/Moscow"
     )
 
     # 15:00 UTC → 18:00 Москвы.
@@ -74,6 +74,7 @@ def test_announcement_renders_optional_fields_and_end_date() -> None:
         ),
         co_organizers=[],
         going=[],
+        not_going=[],
         timezone="Europe/Moscow",
     )
 
@@ -86,7 +87,7 @@ def test_announcement_renders_optional_fields_and_end_date() -> None:
 
 def test_announcement_omits_optional_fields_when_absent() -> None:
     text = build_announcement_text(
-        _event(), co_organizers=[], going=[], timezone="Europe/Moscow"
+        _event(), co_organizers=[], going=[], not_going=[], timezone="Europe/Moscow"
     )
 
     assert "Бюджет" not in text
@@ -97,7 +98,11 @@ def test_announcement_omits_optional_fields_when_absent() -> None:
 def test_announcement_counter_and_going_mentions() -> None:
     going = [_user(10, "Аня", "anya"), _user(20, "Миша")]
     text = build_announcement_text(
-        _event(), co_organizers=[_user(30, "Лера", "lera")], going=going, timezone="Europe/Moscow"
+        _event(),
+        co_organizers=[_user(30, "Лера", "lera")],
+        going=going,
+        not_going=[],
+        timezone="Europe/Moscow",
     )
 
     assert "Организуют: @lera" in text
@@ -111,7 +116,7 @@ def test_announcement_counter_and_going_mentions() -> None:
 def test_announcement_numbers_the_going_list() -> None:
     going = [_user(10, "Аня", "anya"), _user(20, "Миша"), _user(30, "Лера", "lera")]
     text = build_announcement_text(
-        _event(), co_organizers=[], going=going, timezone="Europe/Moscow"
+        _event(), co_organizers=[], going=going, not_going=[], timezone="Europe/Moscow"
     )
 
     lines = text.splitlines()
@@ -120,11 +125,69 @@ def test_announcement_numbers_the_going_list() -> None:
     assert "3. @lera" in lines
 
 
+def test_announcement_lists_not_going_as_second_block() -> None:
+    text = build_announcement_text(
+        _event(),
+        co_organizers=[],
+        going=[_user(10, "Аня", "anya")],
+        not_going=[_user(20, "Миша", "misha"), _user(30, "Лера")],
+        timezone="Europe/Moscow",
+    )
+
+    lines = text.splitlines()
+    assert "✅ Участвует: 1" in lines
+    assert "1. @anya" in lines
+    assert "❌ Не участвует: 2" in lines
+    assert "1. @misha" in lines
+    assert '2. <a href="tg://user?id=30">Лера</a>' in lines
+    # блок «не участвует» — ниже блока «участвует»
+    assert lines.index("❌ Не участвует: 2") > lines.index("✅ Участвует: 1")
+
+
+def test_announcement_hides_not_going_block_when_empty() -> None:
+    text = build_announcement_text(
+        _event(),
+        co_organizers=[],
+        going=[_user(10, "Аня", "anya")],
+        not_going=[],
+        timezone="Europe/Moscow",
+    )
+
+    assert "Не участвует" not in text
+
+
+def test_announcement_marks_goal_reached_when_going_meets_seats_limit() -> None:
+    going = [_user(i, f"U{i}", f"u{i}") for i in range(1, 4)]
+    text = build_announcement_text(
+        _event(seats_limit=2),
+        co_organizers=[],
+        going=going,
+        not_going=[],
+        timezone="Europe/Moscow",
+    )
+
+    assert "✅ Участвует: 3/2 — цель набрана 🎯" in text
+
+
+def test_announcement_no_goal_mark_below_seats_limit() -> None:
+    text = build_announcement_text(
+        _event(seats_limit=5),
+        co_organizers=[],
+        going=[_user(1, "Аня", "anya")],
+        not_going=[],
+        timezone="Europe/Moscow",
+    )
+
+    assert "✅ Участвует: 1/5" in text
+    assert "цель набрана" not in text
+
+
 def test_announcement_escapes_html_in_free_text() -> None:
     text = build_announcement_text(
         _event(description="<b>hack</b> & <script>"),
         co_organizers=[],
         going=[],
+        not_going=[],
         timezone="Europe/Moscow",
     )
 
@@ -134,7 +197,7 @@ def test_announcement_escapes_html_in_free_text() -> None:
 
 def test_announcement_falls_back_to_utc_on_bad_timezone() -> None:
     text = build_announcement_text(
-        _event(), co_organizers=[], going=[], timezone="Not/AZone"
+        _event(), co_organizers=[], going=[], not_going=[], timezone="Not/AZone"
     )
 
     assert "14 сентября, 15:00" in text
@@ -145,6 +208,7 @@ def test_announcement_marks_cancelled_at_the_bottom_and_drops_going_block() -> N
         _event(status=EventStatus.CANCELLED),
         co_organizers=[],
         going=[_user(1, "Аня", "anya")],
+        not_going=[_user(2, "Миша", "misha")],
         timezone="Europe/Moscow",
     )
 
@@ -152,7 +216,9 @@ def test_announcement_marks_cancelled_at_the_bottom_and_drops_going_block() -> N
     assert "14 сентября, 18:00" in text
     assert "📍 Парк Горького" in text
     assert "✅ Участвует" not in text
+    assert "❌ Не участвует" not in text
     assert "@anya" not in text
+    assert "@misha" not in text
 
 
 def test_cancelled_notification_names_time_and_place() -> None:
@@ -401,6 +467,32 @@ async def test_refresh_event_announcement_excludes_removed_member(
     assert "✅ Участвует: 1" in text
     assert "@anya" in text
     assert "@misha" not in text
+
+
+async def test_refresh_event_announcement_renders_not_going_block(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed_event(session_factory)
+
+    async with session_factory() as session:
+        rsvp = await session.scalar(
+            select(EventRSVP).where(EventRSVP.user_id == ids["misha_id"])
+        )
+        assert rsvp is not None
+        rsvp.status = RSVPStatus.NOT_GOING
+        await session.commit()
+
+        event = await session.get(Event, ids["event_id"])
+        assert event is not None
+        await refresh_event_announcement(bot, session, event)
+
+    text = fake_bot_api.edited_messages[-1].text or ""
+    assert "✅ Участвует: 1" in text
+    assert "❌ Не участвует: 1" in text
+    assert text.index("✅ Участвует") < text.index("@anya") < text.index("❌ Не участвует")
+    assert text.index("❌ Не участвует") < text.index("@misha")
 
 
 async def test_refresh_event_announcement_removes_keyboard_when_cancelled(

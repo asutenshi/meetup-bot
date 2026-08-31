@@ -193,6 +193,7 @@ async def create_event(
         chat_id=ctx.project.tg_chat_id,
         co_organizers=co_organizers,
         going=[],
+        not_going=[],
         timezone=timezone,
     )
     event.announcement_message_id = announcement_message_id

@@ -237,6 +237,107 @@ async def test_two_members_going_are_both_listed_in_order(
     assert text.index(misha_mention) < text.index("@anya")
 
 
+async def test_not_going_click_shows_second_block_in_announcement(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed(session_factory)
+    dispatcher = create_dispatcher(session_factory)
+
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(_rsvp_callback(ids["event_id"], "going")),
+    )
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(
+            _member_callback(ids["event_id"], "not_going", update_id=2)
+        ),
+    )
+
+    text = fake_bot_api.edited_messages[-1].text or ""
+    assert "✅ Участвует: 1" in text
+    assert "@anya" in text
+    assert "❌ Не участвует: 1" in text
+    assert f'<a href="tg://user?id={_MISHA_TG_ID}">Миша</a>' in text
+    assert text.index("❌ Не участвует") > text.index("@anya")
+
+
+async def test_repeated_not_going_click_clears_rsvp(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed(session_factory)
+    dispatcher = create_dispatcher(session_factory)
+
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(_rsvp_callback(ids["event_id"], "not_going")),
+    )
+    assert (await _rsvp_row(session_factory, ids, "anya")) is not None
+    assert "❌ Не участвует: 1" in (fake_bot_api.edited_messages[-1].text or "")
+
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(
+            _rsvp_callback(ids["event_id"], "not_going", update_id=2)
+        ),
+    )
+
+    # Строка снята — человек снова «ещё думает», блока «не участвует» нет.
+    assert (await _rsvp_row(session_factory, ids, "anya")) is None
+    text = fake_bot_api.edited_messages[-1].text or ""
+    assert "Не участвует" not in text
+    assert "@anya" not in text
+    assert fake_bot_api.callback_answers[-1] == "Отметка снята — вы пока не ответили 🤔"
+
+
+async def test_cleared_rsvp_can_be_set_again(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed(session_factory)
+    dispatcher = create_dispatcher(session_factory)
+
+    for update_id, status in ((1, "not_going"), (2, "not_going"), (3, "not_going")):
+        await dispatcher.feed_update(
+            bot=bot,
+            update=Update.model_validate(
+                _rsvp_callback(ids["event_id"], status, update_id=update_id)
+            ),
+        )
+
+    rsvp = await _rsvp_row(session_factory, ids, "anya")
+    assert rsvp is not None
+    assert rsvp.status == RSVPStatus.NOT_GOING
+    assert "❌ Не участвует: 1" in (fake_bot_api.edited_messages[-1].text or "")
+
+
+async def test_repeated_going_click_does_not_clear_rsvp(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed(session_factory)
+    dispatcher = create_dispatcher(session_factory)
+
+    for update_id in (1, 2):
+        await dispatcher.feed_update(
+            bot=bot,
+            update=Update.model_validate(
+                _rsvp_callback(ids["event_id"], "going", update_id=update_id)
+            ),
+        )
+
+    rsvp = await _rsvp_row(session_factory, ids, "anya")
+    assert rsvp is not None
+    assert rsvp.status == RSVPStatus.GOING
+    assert fake_bot_api.callback_answers[-1] == "Вы участвуете ✅"
+
+
 async def test_non_member_click_is_rejected(
     bot: Bot,
     fake_bot_api: FakeBotApi,
