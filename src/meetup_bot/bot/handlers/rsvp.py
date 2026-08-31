@@ -4,8 +4,11 @@
 `callback_data` кнопок анонса — `rsvp:<event_id>:<going|not_going>` (см.
 `services/event_announcement.py`). Нажатие → upsert `EventRSVP` по
 (`event_id`, `user_id`) с `updated_by = user_id` (самоотметка). Повторное
-нажатие переключает статус, а не копит записи. Каждое изменение сразу правит
-текст анонса (`refresh_event_announcement`): счётчик подтвердивших и их никнеймы.
+нажатие переключает статус, а не копит записи. Повторный клик по «❌ Не участвую»
+у того, кто уже отмечен `not_going`, снимает отметку целиком — строка `EventRSVP`
+удаляется, человек возвращается в группу «ещё думает» (в анонсе отдельно не
+показывается). Каждое изменение сразу правит текст анонса
+(`refresh_event_announcement`): счётчик подтвердивших и оба списка никнеймов.
 Ответ на нажатие — короткое всплывающее подтверждение, без сообщения в чат.
 
 Постфактум-правка чужого RSVP организатором/админом (`updated_by != user_id`) —
@@ -34,6 +37,7 @@ _EVENT_CANCELLED_TEXT = "Мероприятие отменено."
 _EVENT_FINALIZED_TEXT = "Явка уже зафиксирована — ответ больше не изменить."
 _GOING_TEXT = "Вы участвуете ✅"
 _NOT_GOING_TEXT = "Вы не участвуете ❌"
+_RSVP_CLEARED_TEXT = "Отметка снята — вы пока не ответили 🤔"
 
 
 def _parse_callback(data: str) -> tuple[int, RSVPStatus] | None:
@@ -97,6 +101,21 @@ def create_router() -> Router:
                 EventRSVP.user_id == user.id,
             )
         )
+        # Повторный клик по «❌ Не участвую» у уже отмеченного not_going снимает
+        # отметку: строку удаляем, человек возвращается в «ещё думает». Для
+        # «✅ Участвую» такого нет — повторный клик остаётся идемпотентным.
+        if (
+            rsvp is not None
+            and target == RSVPStatus.NOT_GOING
+            and rsvp.status == RSVPStatus.NOT_GOING
+        ):
+            await session.delete(rsvp)
+            await session.flush()
+            await refresh_event_announcement(bot, session, event)
+            await session.commit()
+            await callback.answer(_RSVP_CLEARED_TEXT)
+            return
+
         changed = rsvp is None or rsvp.status != target
         if rsvp is None:
             session.add(
