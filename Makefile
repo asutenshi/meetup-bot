@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help up down restart migrate logs logs-worker logs-all ps psql \
+.PHONY: help up down restart redeploy migrate logs logs-worker logs-all ps psql \
 	webhook-set webhook-info webhook-delete health smoke \
 	check lint typecheck test \
 	webapp-install webapp-dev webapp-build webapp-check openapi
@@ -19,6 +19,12 @@ down: ## Остановить и удалить контейнеры
 	docker compose down
 
 restart: down up ## Пересоздать окружение с нуля
+
+redeploy: webapp-install openapi ## Обновить Web App (deps + API-типы), пересобрать образ вместе с Mini App и поднять контейнеры
+	docker compose up -d --build
+	$(MAKE) migrate
+	$(MAKE) webhook-set
+	$(MAKE) health
 
 migrate: ## Применить миграции Alembic внутри контейнера app
 	docker compose exec app uv run alembic upgrade head
