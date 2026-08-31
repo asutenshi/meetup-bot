@@ -524,7 +524,14 @@ async def test_update_event_notifies_going_members(
     assert response.status_code == 200
     assert response.json()["notified_going"] == 1
     dm = [m for m in fake_bot_api.sent_messages if m.chat_id == _OTHER_TG_ID]
-    assert dm and "Когда" in (dm[-1].text or "")
+    assert dm
+    text = dm[-1].text or ""
+    assert "Перенос" in text and "Новое время" in text
+    keyboard = dm[-1].reply_markup
+    assert keyboard is not None
+    buttons = [b for row in keyboard.inline_keyboard for b in row]
+    assert any(b.url == "https://t.me/c/100/777" for b in buttons)
+    assert any(b.callback_data == f"rsvp:{event_id}:going" for b in buttons)
 
 
 async def test_update_event_replaces_co_organizers(

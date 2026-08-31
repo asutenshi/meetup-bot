@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
+from aiogram.types import InlineKeyboardMarkup
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -111,7 +112,12 @@ async def going_members(session: AsyncSession, event: Event) -> list[User]:
 
 
 async def notify_going_members(
-    bot: Bot, session: AsyncSession, event: Event, *, text: str
+    bot: Bot,
+    session: AsyncSession,
+    event: Event,
+    *,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
 ) -> int:
     """Рассылает `text` в личку всем подтвердившим участие. Ошибку доставки
     конкретному человеку (бот заблокирован, чат не начат) глотаем — она не
@@ -119,7 +125,9 @@ async def notify_going_members(
     delivered = 0
     for user in await going_members(session, event):
         try:
-            await bot.send_message(chat_id=user.tg_user_id, text=text)
+            await bot.send_message(
+                chat_id=user.tg_user_id, text=text, reply_markup=reply_markup
+            )
         except TelegramAPIError:
             continue
         delivered += 1
