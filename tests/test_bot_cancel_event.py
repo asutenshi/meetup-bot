@@ -193,7 +193,10 @@ async def test_cancel_event_full_flow_marks_cancelled_and_notifies(
     assert "🚫 <b>Мероприятие отменено</b>" in (announcement.text or "")
 
     # Подтвердивший участие получил личное уведомление.
-    assert any("🚫 Отменено" in t for t in fake_bot_api.sent_texts)
+    assert any(
+        "🚫 <b>Мероприятие отменено</b>" in t and "приходить не нужно" in t
+        for t in fake_bot_api.sent_texts
+    )
     result = fake_bot_api.edited_texts[-1]
     assert result.startswith("Мероприятие отменено")
     assert "уведомление: 1" in result

@@ -26,6 +26,8 @@ from meetup_bot.db.session import get_session
 from meetup_bot.services.event_announcement import (
     DEFAULT_TIMEZONE,
     EventSnapshot,
+    announcement_deep_link,
+    build_event_update_keyboard,
     build_event_update_notification,
     publish_event_announcement,
     refresh_event_announcement,
@@ -307,7 +309,15 @@ async def update_event(
     notified = 0
     notification = build_event_update_notification(before, event, timezone=timezone)
     if notification is not None:
-        notified = await notify_going_members(bot, session, event, text=notification)
+        keyboard = build_event_update_keyboard(
+            event.id,
+            announcement_url=announcement_deep_link(
+                ctx.project.tg_chat_id, event.announcement_message_id
+            ),
+        )
+        notified = await notify_going_members(
+            bot, session, event, text=notification, reply_markup=keyboard
+        )
 
     return UpdateEventResponse(
         event_id=event.id,

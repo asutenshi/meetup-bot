@@ -92,6 +92,58 @@ def _format_amount(value: decimal.Decimal) -> str:
     return f"{value.normalize():f}"
 
 
+def _format_when(
+    starts_at: datetime.datetime,
+    ends_at: datetime.datetime | None,
+    tz: ZoneInfo,
+) -> str:
+    """«14 сентября, 15:00» или «14 сентября, 15:00 — 15 сентября, 12:00» —
+    для уведомлений об изменении/отмене."""
+    when = _format_datetime(starts_at, tz)
+    if ends_at is not None:
+        when += f" — {_format_datetime(ends_at, tz)}"
+    return when
+
+
+def announcement_deep_link(tg_chat_id: int, message_id: int | None) -> str | None:
+    """Ссылка вида `https://t.me/c/<internal>/<message_id>` на анонс в
+    супергруппе проекта. `None`, если анонс не публиковался или чат — не
+    супергруппа (id без префикса `-100`, ссылка `t.me/c/` не сработает)."""
+    if message_id is None:
+        return None
+    marker = "-100"
+    chat = str(tg_chat_id)
+    if not chat.startswith(marker):
+        return None
+    return f"https://t.me/c/{chat[len(marker):]}/{message_id}"
+
+
+def build_event_update_keyboard(
+    event_id: int, *, announcement_url: str | None
+) -> InlineKeyboardMarkup:
+    """Кнопки под личным уведомлением об изменении мероприятия: переход к анонсу
+    (если ссылка есть) и та же пара RSVP-кнопок, что под анонсом, — чтобы можно
+    было переотметиться, не открывая чат."""
+    rows: list[list[InlineKeyboardButton]] = []
+    if announcement_url is not None:
+        rows.append(
+            [InlineKeyboardButton(text="🔗 Перейти к анонсу", url=announcement_url)]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="✅ Участвую",
+                callback_data=rsvp_callback_data(event_id, RSVPStatus.GOING),
+            ),
+            InlineKeyboardButton(
+                text="❌ Не участвую",
+                callback_data=rsvp_callback_data(event_id, RSVPStatus.NOT_GOING),
+            ),
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def build_announcement_text(
     event: Event,
     *,
@@ -175,54 +227,100 @@ def build_event_update_notification(
     before: EventSnapshot, event: Event, *, timezone: str
 ) -> str | None:
     """Личное уведомление подтвердившим участие: что изменилось в мероприятии.
-    `None`, если ни одно отслеживаемое поле не поменялось (тогда рассылки нет)."""
+    `None`, если ни одно отслеживаемое поле не поменялось (тогда рассылки нет).
+
+    Заголовок и тон зависят от того, что правили: перенос даты/времени — с
+    пометкой ⚠️, смена места — 📍, прочие правки (описание/бюджет/лимит) — мягкое
+    «обновили детали». Для даты и места показываем «было → стало»; текст
+    описания в личку не тащим — только пометку «посмотрите в анонсе». Кнопки к
+    уведомлению добавляет `build_event_update_keyboard`."""
     tz = _resolve_tz(timezone)
-    changes: list[str] = []
 
-    if before.starts_at != event.starts_at or before.ends_at != event.ends_at:
-        when = _format_datetime(event.starts_at, tz)
-        if event.ends_at is not None:
-            when += f" — {_format_datetime(event.ends_at, tz)}"
-        changes.append(f"🗓 Когда: {when}")
-    if before.location != event.location:
-        changes.append(f"📍 Где: {escape(event.location)}")
-    if before.description != event.description:
-        changes.append(f"📝 Описание: {escape(event.description)}")
-    if before.budget_per_person != event.budget_per_person:
-        if event.budget_per_person is None:
-            changes.append("💰 Бюджет с человека больше не указан")
-        else:
-            changes.append(
-                f"💰 Бюджет с человека: {_format_amount(event.budget_per_person)} ₽"
-            )
-    if before.seats_limit != event.seats_limit:
-        if event.seats_limit is None:
-            changes.append("🎟 Лимит мест снят")
-        else:
-            changes.append(f"🎟 Мест: {event.seats_limit}")
+    when_changed = (
+        before.starts_at != event.starts_at or before.ends_at != event.ends_at
+    )
+    location_changed = before.location != event.location
+    description_changed = before.description != event.description
+    budget_changed = before.budget_per_person != event.budget_per_person
+    seats_changed = before.seats_limit != event.seats_limit
 
-    if not changes:
+    if not (
+        when_changed
+        or location_changed
+        or description_changed
+        or budget_changed
+        or seats_changed
+    ):
         return None
 
-    title = event.title or "мероприятие"
-    lines = [f"Изменилось {escape(title)}, вы записаны на участие:", ""]
-    lines.extend(changes)
-    return "\n".join(lines)
+    name = f"«{escape(event.title)}»" if event.title else "мероприятие"
+    if when_changed:
+        header = f"⚠️ <b>Перенос: {name}</b>"
+    elif location_changed:
+        header = f"📍 <b>Сменилось место: {name}</b>"
+    else:
+        header = f"✏️ <b>Обновили детали: {name}</b>"
+
+    body: list[str] = []
+    if when_changed:
+        body.append(
+            "🗓 Новое время: "
+            f"<b>{_format_when(event.starts_at, event.ends_at, tz)}</b>"
+        )
+        body.append(
+            f"Было: <s>{_format_when(before.starts_at, before.ends_at, tz)}</s>"
+        )
+    if location_changed:
+        body.append(f"📍 Теперь: <b>{escape(event.location)}</b>")
+        body.append(f"Было: <s>{escape(before.location)}</s>")
+    if description_changed:
+        body.append("📝 Поправили описание — посмотрите в анонсе")
+    if budget_changed:
+        if event.budget_per_person is None:
+            body.append("💰 Бюджет с человека больше не указан")
+        else:
+            if before.budget_per_person is None:
+                note = " (раньше не указан)"
+            else:
+                note = f" (было {_format_amount(before.budget_per_person)} ₽)"
+            body.append(
+                "💰 Бюджет с человека: "
+                f"{_format_amount(event.budget_per_person)} ₽{note}"
+            )
+    if seats_changed:
+        if event.seats_limit is None:
+            body.append("🎟 Лимит мест снят")
+        else:
+            if before.seats_limit is None:
+                note = " (лимит добавили)"
+            else:
+                note = f" (было {before.seats_limit})"
+            body.append(f"🎟 Мест: {event.seats_limit}{note}")
+
+    if when_changed or location_changed:
+        footer = "Всё ещё ждём вас. Не сможете — нажмите «Не участвую» ниже."
+    else:
+        footer = "Дата и место прежние, действий не требуется."
+
+    return "\n".join([header, "", *body, "", footer])
 
 
 def build_event_cancelled_notification(event: Event, *, timezone: str) -> str:
     """Личное уведомление подтвердившим участие об отмене мероприятия (задача 2.8).
     В отличие от уведомления об изменении, шлётся всегда — отмена существенна."""
     tz = _resolve_tz(timezone)
-    title = event.title or "мероприятие"
-    when = _format_datetime(event.starts_at, tz)
-    if event.ends_at is not None:
-        when += f" — {_format_datetime(event.ends_at, tz)}"
+    head = (
+        f"«{escape(event.title)}» не состоится."
+        if event.title
+        else "Мероприятие не состоится."
+    )
     return "\n".join(
         [
-            f"🚫 Отменено {escape(title)}, вы были записаны на участие:",
+            "🚫 <b>Мероприятие отменено</b>",
             "",
-            f"🗓 {when}",
+            f"{head} Вы были записаны на участие — приходить не нужно.",
+            "",
+            f"🗓 {_format_when(event.starts_at, event.ends_at, tz)}",
             f"📍 {escape(event.location)}",
         ]
     )

@@ -20,8 +20,12 @@ from meetup_bot.db.models import (
     User,
 )
 from meetup_bot.services.event_announcement import (
+    EventSnapshot,
+    announcement_deep_link,
     build_announcement_text,
     build_event_cancelled_notification,
+    build_event_update_keyboard,
+    build_event_update_notification,
     build_rsvp_keyboard,
     refresh_event_announcement,
     refresh_member_announcements,
@@ -156,9 +160,142 @@ def test_cancelled_notification_names_time_and_place() -> None:
         _event(title="Прогулка"), timezone="Europe/Moscow"
     )
 
-    assert "🚫 Отменено Прогулка" in text
+    assert text.startswith("🚫 <b>Мероприятие отменено</b>")
+    assert "«Прогулка» не состоится." in text
+    assert "приходить не нужно" in text
     assert "🗓 14 сентября, 18:00" in text
     assert "📍 Парк Горького" in text
+
+
+def test_cancelled_notification_without_title() -> None:
+    text = build_event_cancelled_notification(_event(), timezone="Europe/Moscow")
+
+    assert "Мероприятие не состоится." in text
+    assert "«" not in text.split("\n")[2]
+
+
+def test_cancelled_notification_shows_end_date() -> None:
+    text = build_event_cancelled_notification(
+        _event(ends_at=STARTS_AT + datetime.timedelta(days=1)),
+        timezone="Europe/Moscow",
+    )
+
+    assert "🗓 14 сентября, 18:00 — 15 сентября, 18:00" in text
+
+
+def _snapshot(**overrides: object) -> EventSnapshot:
+    return EventSnapshot(_event(**overrides))
+
+
+def test_update_notification_none_when_nothing_changed() -> None:
+    event = _event(location="Парк Горького")
+    assert (
+        build_event_update_notification(
+            EventSnapshot(event), event, timezone="Europe/Moscow"
+        )
+        is None
+    )
+
+
+def test_update_notification_time_shift_is_flagged_with_before_after() -> None:
+    before = _snapshot()
+    event = _event(title="Прогулка", starts_at=STARTS_AT + datetime.timedelta(days=2))
+
+    text = build_event_update_notification(before, event, timezone="Europe/Moscow")
+
+    assert text is not None
+    assert text.startswith("⚠️ <b>Перенос: «Прогулка»</b>")
+    assert "🗓 Новое время: <b>16 сентября, 18:00</b>" in text
+    assert "Было: <s>14 сентября, 18:00</s>" in text
+    assert "нажмите «Не участвую»" in text
+
+
+def test_update_notification_location_change_shows_old_and_new() -> None:
+    before = _snapshot(location="Парк Горького")
+    event = _event(title="Прогулка", location="Кафе «Циферблат»")
+
+    text = build_event_update_notification(before, event, timezone="Europe/Moscow")
+
+    assert text is not None
+    assert text.startswith("📍 <b>Сменилось место: «Прогулка»</b>")
+    assert "📍 Теперь: <b>Кафе «Циферблат»</b>" in text
+    assert "Было: <s>Парк Горького</s>" in text
+
+
+def test_update_notification_minor_edits_use_soft_header_and_footer() -> None:
+    before = _snapshot(budget_per_person=None, seats_limit=None)
+    event = _event(
+        description="Другое описание",
+        budget_per_person=decimal.Decimal("800"),
+        seats_limit=12,
+    )
+
+    text = build_event_update_notification(before, event, timezone="Europe/Moscow")
+
+    assert text is not None
+    assert text.startswith("✏️ <b>Обновили детали: мероприятие</b>")
+    assert "📝 Поправили описание — посмотрите в анонсе" in text
+    assert "Другое описание" not in text
+    assert "💰 Бюджет с человека: 800 ₽ (раньше не указан)" in text
+    assert "🎟 Мест: 12 (лимит добавили)" in text
+    assert "действий не требуется" in text
+
+
+def test_update_notification_budget_and_seats_removed() -> None:
+    before = _snapshot(
+        budget_per_person=decimal.Decimal("1000"), seats_limit=8
+    )
+    event = _event(budget_per_person=None, seats_limit=None)
+
+    text = build_event_update_notification(before, event, timezone="Europe/Moscow")
+
+    assert text is not None
+    assert "💰 Бюджет с человека больше не указан" in text
+    assert "🎟 Лимит мест снят" in text
+
+
+def test_update_notification_escapes_html_in_location() -> None:
+    before = _snapshot(location="Парк")
+    event = _event(location="<b>Бар</b>")
+
+    text = build_event_update_notification(before, event, timezone="Europe/Moscow")
+
+    assert text is not None
+    assert "<b>Бар</b>" not in text
+    assert "&lt;b&gt;Бар&lt;/b&gt;" in text
+
+
+def test_update_keyboard_has_announcement_link_and_rsvp_buttons() -> None:
+    keyboard = build_event_update_keyboard(
+        42, announcement_url="https://t.me/c/700/500"
+    )
+    rows = keyboard.inline_keyboard
+
+    assert rows[0][0].text == "🔗 Перейти к анонсу"
+    assert rows[0][0].url == "https://t.me/c/700/500"
+    assert [b.callback_data for b in rows[1]] == [
+        rsvp_callback_data(42, RSVPStatus.GOING),
+        rsvp_callback_data(42, RSVPStatus.NOT_GOING),
+    ]
+
+
+def test_update_keyboard_drops_link_when_no_announcement() -> None:
+    keyboard = build_event_update_keyboard(42, announcement_url=None)
+
+    assert len(keyboard.inline_keyboard) == 1
+    assert all(b.url is None for b in keyboard.inline_keyboard[0])
+
+
+def test_announcement_deep_link_builds_supergroup_url() -> None:
+    assert (
+        announcement_deep_link(-100_1234567890, 55)
+        == "https://t.me/c/1234567890/55"
+    )
+
+
+def test_announcement_deep_link_none_without_message_or_supergroup() -> None:
+    assert announcement_deep_link(-100_1234567890, None) is None
+    assert announcement_deep_link(123456, 55) is None
 
 
 def test_rsvp_keyboard_callback_data() -> None:
