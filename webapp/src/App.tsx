@@ -1,6 +1,7 @@
 import { AppRoot } from '@telegram-apps/telegram-ui';
 
 import { hasInitData } from './api/client';
+import { AttendanceScreen } from './attendance/AttendanceScreen';
 import { EventForm } from './event-form/EventForm';
 import { EventScreen } from './event/EventScreen';
 import { HubScreen } from './hub/HubScreen';
@@ -10,8 +11,9 @@ import './App.css';
 /**
  * Точка входа Web App. Экран выбирается навигацией (`useNavigation`): кнопка-меню
  * бота открывает домашний экран-хаб (без контекста в URL), ответ на `/new_event`
- * / `/edit_event` — сразу форму мероприятия. С хаба можно перейти к созданию
- * мероприятия и вернуться кнопкой «назад» (задача 2.9.1).
+ * / `/edit_event` — сразу форму мероприятия, ответ на `/attendance` — экран
+ * постфактум-корректировки RSVP (`?project=&attendance=<id>`, задача 3.1). С хаба
+ * можно перейти к созданию мероприятия и вернуться кнопкой «назад» (задача 2.9.1).
  */
 export function App() {
   if (!hasInitData()) {
@@ -53,6 +55,9 @@ function Screens() {
         navigate={navigate}
       />
     );
+  }
+  if (view.name === 'attendance') {
+    return <AttendanceScreen eventId={view.eventId} />;
   }
   return <HubScreen navigate={navigate} />;
 }

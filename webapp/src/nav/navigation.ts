@@ -18,7 +18,8 @@
 export type View =
   | { name: 'hub' }
   | { name: 'form'; project: string; eventId: number | null }
-  | { name: 'event'; project: string; eventId: number };
+  | { name: 'event'; project: string; eventId: number }
+  | { name: 'attendance'; project: string; eventId: number };
 
 /** Базовый путь Mini App (`/app/`), совпадает с `base` в vite.config.ts. */
 const BASE = import.meta.env.BASE_URL;
@@ -31,10 +32,17 @@ export function viewUrl(view: View, base: string = BASE): string {
     return base;
   }
   const params = new URLSearchParams({ project: view.project });
-  if (view.eventId !== null) {
+  if (view.name === 'attendance') {
+    params.set('attendance', String(view.eventId));
+  } else if (view.eventId !== null) {
     params.set('event', String(view.eventId));
   }
   return `${base}?${params.toString()}`;
+}
+
+function positiveInt(raw: string | null): number | null {
+  const value = raw ? Number(raw) : NaN;
+  return Number.isInteger(value) && value > 0 ? value : null;
 }
 
 /** Разбор начального экрана из query-строки (`window.location.search`). */
@@ -44,11 +52,15 @@ export function parseView(search: string): View {
   if (!project) {
     return { name: 'hub' };
   }
-  const rawEvent = params.get('event');
-  const eventId = rawEvent ? Number(rawEvent) : NaN;
+  // Кнопка из `/attendance` (задача 3.1): `?project=&attendance=<id>` — экран
+  // постфактум-корректировки RSVP, отдельная точка входа помимо формы.
+  const attendanceId = positiveInt(params.get('attendance'));
+  if (attendanceId !== null) {
+    return { name: 'attendance', project, eventId: attendanceId };
+  }
   return {
     name: 'form',
     project,
-    eventId: Number.isInteger(eventId) && eventId > 0 ? eventId : null,
+    eventId: positiveInt(params.get('event')),
   };
 }

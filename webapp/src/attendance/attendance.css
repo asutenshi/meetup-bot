@@ -1,0 +1,168 @@
+/*
+  Экран постфактум-корректировки RSVP (задача 3.1) — вариант B «Секции-карточки»
+  (docs/WEBAPP_DESIGN.md). Только семантические токены из theme/tokens.css,
+  акцент — исключительно var(--accent) и производные.
+*/
+
+.at-screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--tg-bg);
+}
+
+.at-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 18px 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.at-head__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--tg-text);
+}
+
+.at-head__sub {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--tg-hint);
+}
+
+.at-note {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-field);
+  background: var(--accent-soft);
+  color: var(--tg-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.at-list {
+  background: var(--tg-section);
+  border: 1px solid var(--tg-sep);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 6px 14px;
+  display: flex;
+  flex-direction: column;
+}
+
+.at-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 2px;
+}
+
+.at-row + .at-row {
+  border-top: 1px solid var(--tg-sep);
+}
+
+.at-row--error .at-row__name {
+  color: var(--tg-destructive);
+}
+
+.at-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.at-row__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 15px;
+  color: var(--tg-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.at-seg {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--tg-bg);
+  border: 1px solid var(--border);
+}
+
+.at-seg__btn {
+  width: 34px;
+  height: 30px;
+  border: 0;
+  padding: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+
+.at-seg__btn--active {
+  background: var(--accent);
+  filter: none;
+  opacity: 1;
+}
+
+.at-seg__btn:disabled {
+  cursor: default;
+}
+
+.at-seg__btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.at-error {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--tg-destructive);
+}
+
+/* Центрированные состояния: загрузка, ошибка, отказ доступа. */
+.at-state {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px 24px;
+  text-align: center;
+  background: var(--tg-bg);
+  color: var(--tg-text);
+}
+
+.at-state__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.at-state__text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--tg-hint);
+  max-width: 320px;
+}

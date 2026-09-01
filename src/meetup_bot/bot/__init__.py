@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from meetup_bot.bot.handlers import (
     admin_commands,
     all_members,
+    attendance,
     cancel_event,
     chat_member,
     edit_event,
@@ -44,5 +45,6 @@ def create_dispatcher(
     dispatcher.include_router(new_event.create_router())
     dispatcher.include_router(edit_event.create_router())
     dispatcher.include_router(cancel_event.create_router())
+    dispatcher.include_router(attendance.create_router())
     dispatcher.include_router(rsvp.create_router())
     return dispatcher
