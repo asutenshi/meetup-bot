@@ -329,18 +329,18 @@
       остаётся идемпотентным). Частично закрывает «повторные клики по RSVP» из
       задачи 5.1.
 
-- [ ] **Настройка порогов `ProjectSettings` в Web App (задача 4.5).** Сейчас
-      единственный интерфейс — команда `/settings` в групповом чате
-      (`src/meetup_bot/bot/handlers/settings.py`). Roadmap (§7 Этап 4, TZ §2.3)
-      допускал и Web App-экран настроек проекта. Доработать: экран настроек в
-      Web App для админа (по `initData`-dependency, как остальные `/api/*`) с
-      полями `reminder_days_threshold`, `missed_events_escalation_count`,
-      `reminder_send_hour`, `timezone` (и, возможно, `all_command_throttle_seconds`),
-      `GET`/`PUT /api/projects/{id}/settings`. Валидацию значений (диапазоны,
-      разбор зоны IANA) вынести из хендлера `/settings` в общий сервис, чтобы не
-      дублировать. Команда `/settings` при этом остаётся как быстрый путь.
-      Осмысленно делать вместе с домашним экраном Web App (задача 2.9) или
-      экранами Этапа 3. (TZ §2.3; roadmap §7 Этап 4)
+- [x] **Настройка порогов `ProjectSettings` в Web App (задача 4.5).** Экран
+      настроек в Mini App для owner/admin: кнопка «Настройки проекта» в секции
+      проекта на хабе → `GET`/`PUT /api/projects/{payload}/settings`
+      (`src/meetup_bot/api/project_settings.py`, контекст по `payload`, роль
+      owner/admin иначе `403 not_an_admin`). Поля: `reminder_days_threshold`,
+      `missed_events_escalation_count`, `reminder_send_hour`,
+      `all_command_throttle_seconds` (добавлен и в реестр `/settings`), `timezone`.
+      `PUT` всей формой, пополевые ошибки валидации (`422` с объектным `detail`).
+      Реестр параметров и валидация вынесены из хендлера `/settings` в общий
+      `services/project_settings.py`; команда `/settings` осталась как быстрый
+      путь. Фронт — `webapp/src/settings/`. Web App открывается только из лички
+      (кнопка-меню → хаб). (TZ §2.3; roadmap §7 Этап 4)
 
 ## Backlog (пост-MVP, вне текущей разбивки)
 

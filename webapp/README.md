@@ -19,6 +19,15 @@
   со-организаторов), шлёт `POST /api/events`. `App.tsx` показывает форму, если
   есть `initData` и `?project`; иначе — экран-подсказка. Роутинг между экранами
   и домашний хаб — задача 2.9.
+- **Настройки проекта** (TASKS.md 4.5) — `src/settings/`. Кнопка «Настройки
+  проекта» в секции проекта на хабе (только owner/admin) →
+  `GET`/`PUT /api/projects/{payload}/settings`. Форма из 5 полей
+  (`reminder_days_threshold`, `missed_events_escalation_count`,
+  `reminder_send_hour`, `all_command_throttle_seconds`, `timezone`), подписи и
+  границы — из `fields` ответа. Сохранение всей формой; ошибку валидации поля
+  бэкенд отдаёт `422` с объектным `detail` `{error, field, message}`
+  (`parseFieldError` в `api/settings.ts`). Те же параметры правит команда
+  `/settings` — общий источник правды `services/project_settings.py`.
   - **Дата и время — два поля.** «Когда» разбито на дату и время. Дата —
     `PickerRow`: своя строка (значение «14 сентября 2026, сб» + шеврон, по
     токенам темы) поверх нативного `<input type="date">` с `opacity: 0`; тап
