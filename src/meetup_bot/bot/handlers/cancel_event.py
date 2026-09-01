@@ -18,7 +18,6 @@ RSVP-кнопки и список участников убираются, сн�
 """
 
 from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
 from aiogram.types import (
     CallbackQuery,
@@ -32,14 +31,12 @@ from meetup_bot.db.enums import EventStatus
 from meetup_bot.db.models import Event, ProjectSettings
 from meetup_bot.services.event_announcement import (
     DEFAULT_TIMEZONE,
-    build_event_cancelled_notification,
     format_short_datetime,
-    refresh_event_announcement,
 )
 from meetup_bot.services.events import (
     can_manage_event,
+    cancel_event,
     list_manageable_events,
-    notify_going_members,
     resolve_member_user_id,
     user_is_project_admin,
 )
@@ -222,22 +219,8 @@ def create_router() -> Router:
             return
 
         timezone = await _project_timezone(session, event.project_id)
-        event.status = EventStatus.CANCELLED
-        await session.flush()
-        # Неправимый анонс (сообщение удалили, бот потерял права, публикации не
-        # было) не должен мешать отмене — она уже применена в БД; о неудаче
-        # сообщаем вызвавшему отдельной строкой.
-        try:
-            announcement_ok = await refresh_event_announcement(bot, session, event)
-        except TelegramAPIError:
-            announcement_ok = False
-        await session.commit()
-
-        notified = await notify_going_members(
-            bot,
-            session,
-            event,
-            text=build_event_cancelled_notification(event, timezone=timezone),
+        announcement_ok, notified = await cancel_event(
+            bot, session, event, timezone=timezone
         )
         await callback.message.edit_text(  # type: ignore[union-attr]
             _result_text(notified=notified, announcement_ok=announcement_ok)

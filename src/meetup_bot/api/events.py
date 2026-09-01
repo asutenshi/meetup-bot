@@ -32,7 +32,11 @@ from meetup_bot.services.event_announcement import (
     publish_event_announcement,
     refresh_event_announcement,
 )
-from meetup_bot.services.events import can_manage_event, notify_going_members
+from meetup_bot.services.events import (
+    can_manage_event,
+    cancel_event,
+    notify_going_members,
+)
 from meetup_bot.services.rsvp import RsvpError, rsvp_summary, set_rsvp
 
 router = APIRouter(prefix="/api", tags=["events"])
@@ -326,6 +330,36 @@ async def update_event(
         announcement_message_id=event.announcement_message_id,
         notified_going=notified,
     )
+
+
+class CancelEventResponse(BaseModel):
+    """Итог отмены мероприятия с экрана Web App (задача 2.9.3): удалось ли
+    перерисовать анонс и скольким подтвердившим участие ушло уведомление."""
+
+    announcement_ok: bool
+    notified: int
+
+
+@router.post("/events/{event_id}/cancel")
+async def cancel_event_endpoint(
+    event_id: int,
+    ctx: Annotated[ProjectContext, Depends(require_project_context)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    bot: Annotated[Bot, Depends(get_bot)],
+) -> CancelEventResponse:
+    """Отмена мероприятия организатором с экрана мероприятия. Права и то, что
+    мероприятие ещё можно отменить, проверяет тот же `_load_manageable_event`,
+    что и `PUT /api/events/{id}` (правило 2.7): `404 event_not_found` —
+    чужой/несуществующий id, `409 event_not_editable` — уже отменено или явка
+    финализирована, `403 not_an_organizer` — нет прав. Дальше — общий сервис
+    `cancel_event` (тот же, что у команды `/cancel_event`)."""
+    event = await _load_manageable_event(session, ctx, event_id)
+    settings = await session.get(ProjectSettings, ctx.project.id)
+    timezone = settings.timezone if settings is not None else DEFAULT_TIMEZONE
+    announcement_ok, notified = await cancel_event(
+        bot, session, event, timezone=timezone
+    )
+    return CancelEventResponse(announcement_ok=announcement_ok, notified=notified)
 
 
 class EventViewCoOrganizer(BaseModel):

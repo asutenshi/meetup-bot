@@ -142,7 +142,7 @@
         «Не участвую» (по `my_rsvp`), «Перейти к анонсу»; своя шапка экрана: «назад»
         слева (синхронно с Telegram `backButton`) + для `can_manage` меню «⋯» с
         «Редактировать» → форма 2.7 через navigate. (TZ §3.8; §4.3 «RSVP»)
-  - [ ] **2.9.3 Отмена мероприятия из Web App.** Вынести логику отмены из
+  - [x] **2.9.3 Отмена мероприятия из Web App.** Вынести логику отмены из
         `bot/handlers/cancel_event.py` в общий сервис (`services/events.py`):
         `status = cancelled`, `refresh_event_announcement`, `notify_going_members`
         с `build_event_cancelled_notification`, возврат `(announcement_ok, notified)`;
