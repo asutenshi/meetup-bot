@@ -127,7 +127,13 @@ function ProjectSection({
         ) : (
           <ul className="hub-events">
             {events.events.map((event) => (
-              <EventRow key={event.id} event={event} />
+              <EventRow
+                key={event.id}
+                event={event}
+                onOpen={() =>
+                  navigate({ name: 'event', project: project.payload, eventId: event.id })
+                }
+              />
             ))}
           </ul>
         ))}
@@ -146,23 +152,28 @@ function ProjectSection({
   );
 }
 
-function EventRow({ event }: { event: EventCard }) {
+function EventRow({ event, onOpen }: { event: EventCard; onOpen: () => void }) {
   const seats = event.seats_limit;
   const goalReached = seats !== null && event.going_count >= seats;
   return (
-    <li className="hub-event">
-      <div className="hub-event__main">
-        <span className="hub-event__when">{formatWhen(event.starts_at)}</span>
-        <span className="hub-event__title">{event.title?.trim() || event.location}</span>
-      </div>
-      <span className="hub-event__meta">
-        {event.is_finalized && <span className="hub-tag">прошло</span>}
-        <span className="hub-event__going">
-          идёт {event.going_count}
-          {seats !== null ? `/${seats}` : ''}
-          {goalReached ? ' 🎯' : ''}
+    <li>
+      <button type="button" className="hub-event" onClick={onOpen}>
+        <span className="hub-event__main">
+          <span className="hub-event__when">{formatWhen(event.starts_at)}</span>
+          <span className="hub-event__title">{event.title?.trim() || event.location}</span>
         </span>
-      </span>
+        <span className="hub-event__meta">
+          {event.is_finalized && <span className="hub-tag">прошло</span>}
+          <span className="hub-event__going">
+            идёт {event.going_count}
+            {seats !== null ? `/${seats}` : ''}
+            {goalReached ? ' 🎯' : ''}
+          </span>
+        </span>
+        <svg className="hub-event__chev" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M9 6l6 6-6 6" />
+        </svg>
+      </button>
     </li>
   );
 }

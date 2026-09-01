@@ -9,6 +9,9 @@ export type EditEventContext = components['schemas']['EditEventContext'];
 export type EventFormData = components['schemas']['EventFormData'];
 export type UpdateEventRequest = components['schemas']['UpdateEventRequest'];
 export type UpdateEventResponse = components['schemas']['UpdateEventResponse'];
+export type EventView = components['schemas']['EventView'];
+export type EventRsvpSummary = components['schemas']['EventRsvpSummary'];
+export type RsvpStatus = components['schemas']['RsvpRequest']['status'];
 
 /** Ошибка ответа бэкенда: `status` + машиночитаемый `detail` (TZ §3.2). */
 export class ApiError extends Error {
@@ -90,4 +93,29 @@ export async function updateEvent(
     throw await readError(response);
   }
   return (await response.json()) as UpdateEventResponse;
+}
+
+/** Мероприятие для экрана Web App: поля + RSVP-сводка + права (GET /api/events/{id}/view). */
+export async function fetchEventView(eventId: number): Promise<EventView> {
+  const response = await apiFetch(`/events/${eventId}/view`);
+  if (!response.ok) {
+    throw await readError(response);
+  }
+  return (await response.json()) as EventView;
+}
+
+/** Самоотметка «Участвую» / «Не участвую» с экрана мероприятия (POST /api/events/{id}/rsvp). */
+export async function submitRsvp(
+  eventId: number,
+  status: RsvpStatus,
+): Promise<EventRsvpSummary> {
+  const response = await apiFetch(`/events/${eventId}/rsvp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  if (!response.ok) {
+    throw await readError(response);
+  }
+  return (await response.json()) as EventRsvpSummary;
 }

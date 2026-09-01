@@ -2,6 +2,7 @@ import { AppRoot } from '@telegram-apps/telegram-ui';
 
 import { hasInitData } from './api/client';
 import { EventForm } from './event-form/EventForm';
+import { EventScreen } from './event/EventScreen';
 import { HubScreen } from './hub/HubScreen';
 import { useNavigation } from './nav/useNavigation';
 import './App.css';
@@ -42,6 +43,16 @@ function Screens() {
 
   if (view.name === 'form') {
     return <EventForm eventId={view.eventId} onBack={canGoBack ? back : undefined} />;
+  }
+  if (view.name === 'event') {
+    return (
+      <EventScreen
+        eventId={view.eventId}
+        project={view.project}
+        onBack={back}
+        navigate={navigate}
+      />
+    );
   }
   return <HubScreen navigate={navigate} />;
 }
