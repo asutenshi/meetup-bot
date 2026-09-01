@@ -842,3 +842,108 @@ async def test_event_rsvp_403_for_non_member(
         )
 
     assert response.status_code == 403
+
+
+# --- POST /api/events/{id}/cancel (задача 2.9.3) ---
+
+
+async def test_cancel_event_marks_cancelled_edits_announcement_and_notifies(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot, fake_bot_api: FakeBotApi
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory,
+        project_id=ids["project_id"],
+        created_by=ids["creator_id"],
+        going_user_ids=[ids["other_id"]],
+    )
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.post(
+            f"/api/events/{event_id}/cancel",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_CREATOR_TG_ID)},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"announcement_ok": True, "notified": 1}
+
+    async with session_factory() as session:
+        event = await session.get(Event, event_id)
+        assert event is not None
+        assert event.status == EventStatus.CANCELLED
+
+    announcement = next(m for m in fake_bot_api.edited_messages if m.message_id == 777)
+    assert announcement.reply_markup is None
+    assert any(
+        "Мероприятие отменено" in t and "приходить не нужно" in t
+        for t in fake_bot_api.sent_texts
+    )
+
+
+async def test_cancel_event_403_for_non_organizer(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory, project_id=ids["project_id"], created_by=ids["creator_id"]
+    )
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.post(
+            f"/api/events/{event_id}/cancel",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_OTHER_TG_ID)},
+        )
+
+    assert response.status_code == 403
+    async with session_factory() as session:
+        event = await session.get(Event, event_id)
+        assert event is not None
+        assert event.status == EventStatus.PLANNED
+
+
+async def test_cancel_event_409_when_already_cancelled(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory, project_id=ids["project_id"], created_by=ids["creator_id"]
+    )
+    async with session_factory() as session:
+        event = await session.get(Event, event_id)
+        assert event is not None
+        event.status = EventStatus.CANCELLED
+        await session.commit()
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.post(
+            f"/api/events/{event_id}/cancel",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_CREATOR_TG_ID)},
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "event_not_editable"
+
+
+async def test_cancel_event_404_for_event_of_other_project(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory, project_id=ids["project_id"], created_by=ids["creator_id"]
+    )
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.post(
+            f"/api/events/{event_id}/cancel",
+            params={"project": "beta"},
+            headers={INIT_DATA_HEADER: _init_data(_OUTSIDER_TG_ID)},
+        )
+
+    assert response.status_code == 404

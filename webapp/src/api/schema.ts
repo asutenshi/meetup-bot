@@ -56,6 +56,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events/{event_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Event Endpoint
+         * @description Отмена мероприятия организатором с экрана мероприятия. Права и то, что
+         *     мероприятие ещё можно отменить, проверяет тот же `_load_manageable_event`,
+         *     что и `PUT /api/events/{id}` (правило 2.7): `404 event_not_found` —
+         *     чужой/несуществующий id, `409 event_not_editable` — уже отменено или явка
+         *     финализирована, `403 not_an_organizer` — нет прав. Дальше — общий сервис
+         *     `cancel_event` (тот же, что у команды `/cancel_event`).
+         */
+        post: operations["cancel_event_endpoint_api_events__event_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/events/{event_id}/view": {
         parameters: {
             query?: never;
@@ -145,6 +170,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * CancelEventResponse
+         * @description Итог отмены мероприятия с экрана Web App (задача 2.9.3): удалось ли
+         *     перерисовать анонс и скольким подтвердившим участие ушло уведомление.
+         */
+        CancelEventResponse: {
+            /** Announcement Ok */
+            announcement_ok: boolean;
+            /** Notified */
+            notified: number;
+        };
         /** CreateEventRequest */
         CreateEventRequest: {
             /**
@@ -527,6 +563,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UpdateEventResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_event_endpoint_api_events__event_id__cancel_post: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: {
+                "X-Telegram-Init-Data"?: string | null;
+            };
+            path: {
+                event_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CancelEventResponse"];
                 };
             };
             /** @description Validation Error */

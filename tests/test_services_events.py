@@ -1,5 +1,6 @@
 import datetime
 
+from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meetup_bot.db.enums import EventStatus, MembershipRole, RSVPStatus
@@ -13,10 +14,12 @@ from meetup_bot.db.models import (
 )
 from meetup_bot.services.events import (
     can_manage_event,
+    cancel_event,
     going_members,
     list_manageable_events,
     user_is_project_admin,
 )
+from tests.conftest import FakeBotApi
 
 _START = datetime.datetime(2026, 9, 20, 15, 0, tzinfo=datetime.UTC)
 
@@ -160,3 +163,30 @@ async def test_going_members_and_admin_check(session: AsyncSession) -> None:
     assert not await user_is_project_admin(
         session, project_id=ids["project_id"], user_id=ids["member_id"]
     )
+
+
+async def test_cancel_event_sets_status_notifies_and_reports_missing_announcement(
+    session: AsyncSession, bot: Bot, fake_bot_api: FakeBotApi
+) -> None:
+    ids = await _seed(session)
+    event = await session.get(Event, ids["event_id"])
+    assert event is not None
+    session.add(
+        EventRSVP(
+            event_id=event.id,
+            user_id=ids["member_id"],
+            status=RSVPStatus.GOING,
+            updated_by=ids["member_id"],
+        )
+    )
+    await session.commit()
+
+    announcement_ok, notified = await cancel_event(
+        bot, session, event, timezone="Europe/Moscow"
+    )
+
+    # Анонса не было (`announcement_message_id` пуст) — перерисовать нечего.
+    assert announcement_ok is False
+    assert notified == 1
+    assert event.status == EventStatus.CANCELLED
+    assert any("Мероприятие отменено" in text for text in fake_bot_api.sent_texts)

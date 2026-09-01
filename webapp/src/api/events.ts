@@ -12,6 +12,7 @@ export type UpdateEventResponse = components['schemas']['UpdateEventResponse'];
 export type EventView = components['schemas']['EventView'];
 export type EventRsvpSummary = components['schemas']['EventRsvpSummary'];
 export type RsvpStatus = components['schemas']['RsvpRequest']['status'];
+export type CancelEventResponse = components['schemas']['CancelEventResponse'];
 
 /** Ошибка ответа бэкенда: `status` + машиночитаемый `detail` (TZ §3.2). */
 export class ApiError extends Error {
@@ -118,4 +119,13 @@ export async function submitRsvp(
     throw await readError(response);
   }
   return (await response.json()) as EventRsvpSummary;
+}
+
+/** Отмена мероприятия организатором с экрана мероприятия (POST /api/events/{id}/cancel). */
+export async function cancelEvent(eventId: number): Promise<CancelEventResponse> {
+  const response = await apiFetch(`/events/${eventId}/cancel`, { method: 'POST' });
+  if (!response.ok) {
+    throw await readError(response);
+  }
+  return (await response.json()) as CancelEventResponse;
 }

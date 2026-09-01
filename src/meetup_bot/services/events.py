@@ -24,6 +24,10 @@ from meetup_bot.db.models import (
     ProjectMembership,
     User,
 )
+from meetup_bot.services.event_announcement import (
+    build_event_cancelled_notification,
+    refresh_event_announcement,
+)
 
 
 async def _co_organizer_ids(session: AsyncSession, event_id: int) -> set[int]:
@@ -156,6 +160,40 @@ async def notify_going_members(
             continue
         delivered += 1
     return delivered
+
+
+async def cancel_event(
+    bot: Bot,
+    session: AsyncSession,
+    event: Event,
+    *,
+    timezone: str,
+) -> tuple[bool, int]:
+    """Отмена мероприятия: `status = cancelled`, перерисовка анонса (RSVP-кнопки
+    и списки участников убираются, снизу — пометка «отменено») и личные
+    уведомления подтвердившим участие. Общий сервис для команды `/cancel_event`
+    (задача 2.8) и экрана мероприятия в Web App (задача 2.9.3); права и то, что
+    мероприятие ещё можно отменить, проверяет вызывающий.
+
+    Неправимый анонс (сообщение удалили, бот потерял права, публикации не было)
+    отмене не мешает — она уже применена в БД, о неудаче сообщаем флагом.
+    Возвращает `(announcement_ok, notified)`. `commit` делает сам.
+    """
+    event.status = EventStatus.CANCELLED
+    await session.flush()
+    try:
+        announcement_ok = await refresh_event_announcement(bot, session, event)
+    except TelegramAPIError:
+        announcement_ok = False
+    await session.commit()
+
+    notified = await notify_going_members(
+        bot,
+        session,
+        event,
+        text=build_event_cancelled_notification(event, timezone=timezone),
+    )
+    return announcement_ok, notified
 
 
 async def user_is_project_admin(

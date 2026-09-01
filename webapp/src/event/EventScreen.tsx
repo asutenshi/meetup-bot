@@ -2,15 +2,17 @@ import { useEffect, useState } from 'react';
 
 import {
   ApiError,
+  cancelEvent,
   fetchEventView,
   submitRsvp,
+  type CancelEventResponse,
   type EventRsvpSummary,
   type EventView,
   type RsvpStatus,
 } from '../api/events';
 import { formatWhen } from '../hub/format';
 import type { View } from '../nav/navigation';
-import { openTelegramLinkSafe } from '../telegram/init';
+import { closeMiniApp, openTelegramLinkSafe } from '../telegram/init';
 import { Card } from '../ui/Card';
 import { ScreenBar, type ScreenBarAction } from '../ui/ScreenBar';
 import { ICONS } from '../event-form/components';
@@ -45,6 +47,12 @@ export function EventScreen({
   const [rsvp, setRsvp] = useState<EventRsvpSummary | null>(null);
   const [rsvpBusy, setRsvpBusy] = useState(false);
   const [rsvpError, setRsvpError] = useState<string | null>(null);
+  // Отмена мероприятия из меню шапки (для can_manage): 'view' → 'confirm' →
+  // экран результата (cancelDone).
+  const [phase, setPhase] = useState<'view' | 'confirm'>('view');
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [cancelDone, setCancelDone] = useState<CancelEventResponse | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -89,12 +97,44 @@ export function EventScreen({
     }
   }
 
+  async function runCancel(): Promise<void> {
+    setCancelBusy(true);
+    setCancelError(null);
+    try {
+      setCancelDone(await cancelEvent(eventId));
+    } catch (error: unknown) {
+      if (error instanceof ApiError && error.status === 401) {
+        setCancelError('Сессия устарела — переоткройте Mini App.');
+      } else if (error instanceof ApiError && error.status === 403) {
+        setCancelError('Нет прав на отмену этого мероприятия.');
+      } else if (
+        error instanceof ApiError &&
+        (error.status === 404 || error.status === 409)
+      ) {
+        setCancelError('Мероприятие уже нельзя отменить — отменено, прошло или удалено.');
+      } else {
+        const detail = error instanceof ApiError ? error.detail : 'network';
+        setCancelError(`Не удалось отменить. Код: ${detail}`);
+      }
+    } finally {
+      setCancelBusy(false);
+    }
+  }
+
   const actions: ScreenBarAction[] =
     load.kind === 'ready' && load.event.can_manage
       ? [
           {
             label: 'Редактировать',
             onClick: () => navigate({ name: 'form', project, eventId }),
+          },
+          {
+            label: 'Отменить мероприятие',
+            danger: true,
+            onClick: () => {
+              setCancelError(null);
+              setPhase('confirm');
+            },
           },
         ]
       : [];
@@ -129,6 +169,70 @@ export function EventScreen({
               </p>
             </>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  if (cancelDone) {
+    return (
+      <div className="es-root">
+        <ScreenBar onBack={onBack} />
+        <div className="es-state">
+          <div className="es-state__badge">🚫</div>
+          <p className="es-state__title">Мероприятие отменено</p>
+          <p className="es-state__text">
+            {cancelDone.notified > 0
+              ? `Уведомление об отмене получили ${cancelDone.notified} чел. `
+              : ''}
+            {cancelDone.announcement_ok
+              ? 'Анонс в чате помечен «отменено», RSVP-кнопки убраны.'
+              : '⚠️ Анонс в чате обновить не удалось — пометьте отмену и уберите кнопки вручную.'}
+          </p>
+          <div className="es-cancel__actions">
+            <button
+              type="button"
+              className="es-cancel__btn es-cancel__btn--primary"
+              onClick={closeMiniApp}
+            >
+              Закрыть
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === 'confirm') {
+    return (
+      <div className="es-root">
+        <ScreenBar onBack={() => setPhase('view')} />
+        <div className="es-state">
+          <div className="es-state__badge">🚫</div>
+          <p className="es-state__title">Отменить мероприятие?</p>
+          <p className="es-state__text">
+            Анонс в чате пометится «отменено», RSVP-кнопки уберутся, а подтвердившим
+            участие уйдёт личное уведомление. Действие необратимо.
+          </p>
+          {cancelError && <p className="ui-error">{cancelError}</p>}
+          <div className="es-cancel__actions">
+            <button
+              type="button"
+              className="es-cancel__btn es-cancel__btn--danger"
+              disabled={cancelBusy}
+              onClick={() => void runCancel()}
+            >
+              {cancelBusy ? 'Отменяем…' : 'Да, отменить'}
+            </button>
+            <button
+              type="button"
+              className="es-cancel__btn"
+              disabled={cancelBusy}
+              onClick={() => setPhase('view')}
+            >
+              Назад
+            </button>
+          </div>
         </div>
       </div>
     );
