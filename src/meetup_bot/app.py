@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from meetup_bot.api import router as api_router
 from meetup_bot.bot import create_bot, create_dispatcher
-from meetup_bot.bot.commands import set_bot_commands
+from meetup_bot.bot.commands import set_bot_commands, set_menu_button
 from meetup_bot.config import Settings, get_settings
 from meetup_bot.db.session import create_engine, create_session_factory
 
@@ -23,8 +23,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.session_factory = create_session_factory(engine)
         app.state.bot = create_bot(settings)
         app.state.dispatcher = create_dispatcher(app.state.session_factory, settings)
-        # Подсказки команд по `/` — до начала обработки апдейтов (TZ §3.6).
+        # Подсказки команд по `/` и кнопка-меню Web App — до начала обработки
+        # апдейтов (TZ §3.6, §3.8).
         await set_bot_commands(app.state.bot)
+        await set_menu_button(app.state.bot, public_base_url=settings.public_base_url)
         try:
             yield
         finally:

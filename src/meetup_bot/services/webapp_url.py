@@ -14,6 +14,14 @@ from urllib.parse import urlencode
 _WEBAPP_PATH = "/app/"
 
 
+def build_hub_url(public_base_url: str) -> str:
+    """`{public_base_url}/app/` — фиксированный URL домашнего экрана-хаба без
+    контекста (задача 2.9.1). На него ведёт глобальная кнопка-меню бота
+    (`setChatMenuButton` → `MenuButtonWebApp`); проект хаб разрешает сам по
+    `initData` (TZ §3.8, блок «Домашний экран-хаб»)."""
+    return f"{public_base_url.rstrip('/')}{_WEBAPP_PATH}"
+
+
 def build_web_app_url(
     public_base_url: str,
     *,

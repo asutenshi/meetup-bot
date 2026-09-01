@@ -1,59 +1,63 @@
 import { AppRoot } from '@telegram-apps/telegram-ui';
 
-import {
-  getAttendanceContext,
-  getEventContext,
-  getProjectContext,
-  hasInitData,
-} from './api/client';
+import { hasInitData } from './api/client';
 import { AttendanceScreen } from './attendance/AttendanceScreen';
 import { EventForm } from './event-form/EventForm';
+import { EventScreen } from './event/EventScreen';
+import { HubScreen } from './hub/HubScreen';
+import { useNavigation } from './nav/useNavigation';
 import './App.css';
 
 /**
- * Точка входа Web App. Экраны различаются по query-параметрам URL кнопки бота:
- * `&attendance=<id>` — экран постфактум-корректировки RSVP (`/attendance`,
- * TASKS.md 3.1); `&event=<id>` — форма редактирования мероприятия
- * (`/edit_event`, 2.7); иначе — форма создания (`/new_event`). Параметры
- * взаимоисключающие; домашний экран-хаб и роутинг между экранами — задача 2.9.
+ * Точка входа Web App. Экран выбирается навигацией (`useNavigation`): кнопка-меню
+ * бота открывает домашний экран-хаб (без контекста в URL), ответ на `/new_event`
+ * / `/edit_event` — сразу форму мероприятия, ответ на `/attendance` — экран
+ * постфактум-корректировки RSVP (`?project=&attendance=<id>`, задача 3.1). С хаба
+ * можно перейти к созданию мероприятия и вернуться кнопкой «назад» (задача 2.9.1).
  */
 export function App() {
-  const insideTelegram = hasInitData();
-  const project = getProjectContext();
-  const eventId = getEventContext();
-  const attendanceEventId = getAttendanceContext();
-
-  if (insideTelegram && project) {
+  if (!hasInitData()) {
     return (
       <AppRoot>
-        {attendanceEventId !== null ? (
-          <AttendanceScreen eventId={attendanceEventId} />
-        ) : (
-          <EventForm eventId={eventId} />
-        )}
+        <main className="screen">
+          <section className="card">
+            <h1 className="card__title">meetup-bot · Web App</h1>
+            <p className="card__hint">
+              Приложение открыто вне Telegram. Откройте его кнопкой-меню или командой{' '}
+              <code>/new_event</code> в личном чате с ботом — иначе бэкенд отклонит
+              запросы (нет подписи <code>initData</code>).
+            </p>
+          </section>
+        </main>
       </AppRoot>
     );
   }
 
   return (
     <AppRoot>
-      <main className="screen">
-        <section className="card">
-          <h1 className="card__title">meetup-bot · Web App</h1>
-          {!insideTelegram ? (
-            <p className="card__hint">
-              Приложение открыто вне Telegram. Откройте форму через команду{' '}
-              <code>/new_event</code> в личном чате с ботом — иначе бэкенд отклонит
-              запросы (нет подписи <code>initData</code>).
-            </p>
-          ) : (
-            <p className="card__hint">
-              Не передан контекст проекта (<code>?project=…</code> в URL). Откройте
-              приложение кнопкой из ответа бота на <code>/new_event</code>.
-            </p>
-          )}
-        </section>
-      </main>
+      <Screens />
     </AppRoot>
   );
+}
+
+function Screens() {
+  const { view, canGoBack, navigate, back } = useNavigation();
+
+  if (view.name === 'form') {
+    return <EventForm eventId={view.eventId} onBack={canGoBack ? back : undefined} />;
+  }
+  if (view.name === 'event') {
+    return (
+      <EventScreen
+        eventId={view.eventId}
+        project={view.project}
+        onBack={back}
+        navigate={navigate}
+      />
+    );
+  }
+  if (view.name === 'attendance') {
+    return <AttendanceScreen eventId={view.eventId} />;
+  }
+  return <HubScreen navigate={navigate} />;
 }

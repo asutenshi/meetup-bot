@@ -635,3 +635,210 @@ async def test_create_event_removed_member_cannot_be_co_organizer(
         )
 
     assert response.status_code == 422
+
+
+# --- GET /api/events/{id}/view + POST /api/events/{id}/rsvp (задача 2.9.2) ---
+
+
+async def test_event_view_returns_fields_summary_and_can_manage(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory,
+        project_id=ids["project_id"],
+        created_by=ids["creator_id"],
+        going_user_ids=[ids["other_id"]],
+    )
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.get(
+            f"/api/events/{event_id}/view",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_CREATOR_TG_ID)},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["location"] == "Старое место"
+    assert data["status"] == "planned"
+    assert data["is_finalized"] is False
+    assert data["rsvp"] == {"going_count": 1, "not_going_count": 0, "my_rsvp": None}
+    assert data["can_manage"] is True
+    assert data["announcement_url"].endswith("/777")
+
+
+async def test_event_view_visible_to_plain_member_without_manage(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory,
+        project_id=ids["project_id"],
+        created_by=ids["creator_id"],
+        co_organizer_ids=[ids["creator_id"]],
+    )
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.get(
+            f"/api/events/{event_id}/view",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_OTHER_TG_ID)},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["can_manage"] is False
+
+
+async def test_event_view_403_for_non_member(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory, project_id=ids["project_id"], created_by=ids["creator_id"]
+    )
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.get(
+            f"/api/events/{event_id}/view",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_OUTSIDER_TG_ID)},
+        )
+
+    assert response.status_code == 403
+
+
+async def test_event_view_can_manage_false_when_finalized(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory, project_id=ids["project_id"], created_by=ids["creator_id"]
+    )
+    async with session_factory() as session:
+        event = await session.get(Event, event_id)
+        assert event is not None
+        event.attendance_finalized_at = datetime.datetime(2026, 10, 3, tzinfo=datetime.UTC)
+        await session.commit()
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.get(
+            f"/api/events/{event_id}/view",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_CREATOR_TG_ID)},
+        )
+
+    data = response.json()
+    assert data["is_finalized"] is True
+    assert data["can_manage"] is False
+
+
+async def test_event_rsvp_going_updates_summary_and_announcement(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot, fake_bot_api: FakeBotApi
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory, project_id=ids["project_id"], created_by=ids["creator_id"]
+    )
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.post(
+            f"/api/events/{event_id}/rsvp",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_OTHER_TG_ID)},
+            json={"status": "going"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "going_count": 1,
+        "not_going_count": 0,
+        "my_rsvp": "going",
+    }
+    assert fake_bot_api.edited_messages, "анонс должен перерисоваться"
+
+    async with session_factory() as session:
+        rsvp = await session.scalar(
+            select(EventRSVP).where(EventRSVP.event_id == event_id)
+        )
+        assert rsvp is not None
+        assert rsvp.status == RSVPStatus.GOING
+        assert rsvp.updated_by == ids["other_id"]
+
+
+async def test_event_rsvp_repeat_not_going_clears_mark(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory, project_id=ids["project_id"], created_by=ids["creator_id"]
+    )
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        first = await client.post(
+            f"/api/events/{event_id}/rsvp",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_OTHER_TG_ID)},
+            json={"status": "not_going"},
+        )
+        second = await client.post(
+            f"/api/events/{event_id}/rsvp",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_OTHER_TG_ID)},
+            json={"status": "not_going"},
+        )
+
+    assert first.json()["my_rsvp"] == "not_going"
+    assert second.json() == {"going_count": 0, "not_going_count": 0, "my_rsvp": None}
+
+
+async def test_event_rsvp_409_when_cancelled(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory, project_id=ids["project_id"], created_by=ids["creator_id"]
+    )
+    async with session_factory() as session:
+        event = await session.get(Event, event_id)
+        assert event is not None
+        event.status = EventStatus.CANCELLED
+        await session.commit()
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.post(
+            f"/api/events/{event_id}/rsvp",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_OTHER_TG_ID)},
+            json={"status": "going"},
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "event_cancelled"
+
+
+async def test_event_rsvp_403_for_non_member(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory, project_id=ids["project_id"], created_by=ids["creator_id"]
+    )
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.post(
+            f"/api/events/{event_id}/rsvp",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_OUTSIDER_TG_ID)},
+            json={"status": "going"},
+        )
+
+    assert response.status_code == 403

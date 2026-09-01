@@ -9,6 +9,7 @@ from aiogram.methods import (
     EditMessageText,
     GetMe,
     SendMessage,
+    SetChatMenuButton,
     SetMyCommands,
     TelegramMethod,
 )
@@ -47,6 +48,7 @@ class FakeBotApi:
         self.edited_messages: list[EditMessageText] = []
         self.callback_answers: list[str] = []
         self.set_my_commands_calls: list[SetMyCommands] = []
+        self.set_chat_menu_button_calls: list[SetChatMenuButton] = []
 
     async def __call__(self, method: TelegramMethod, request_timeout: int | None = None):  # type: ignore[no-untyped-def]
         if isinstance(method, GetMe):
@@ -73,6 +75,9 @@ class FakeBotApi:
             )
         if isinstance(method, SetMyCommands):
             self.set_my_commands_calls.append(method)
+            return True
+        if isinstance(method, SetChatMenuButton):
+            self.set_chat_menu_button_calls.append(method)
             return True
         if isinstance(method, AnswerCallbackQuery):
             self.callback_answers.append(method.text or "")

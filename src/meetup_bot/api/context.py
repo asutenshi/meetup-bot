@@ -35,30 +35,23 @@ class ProjectContext:
     membership: ProjectMembership
 
 
-async def require_project_context(
-    tg_user_id: Annotated[int, Depends(get_tg_user_id)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-    project: Annotated[str | None, Query()] = None,
+async def resolve_project_context(
+    session: AsyncSession, *, tg_user_id: int, invite_payload: str
 ) -> ProjectContext:
-    """Зависимость: `(project, user, membership)` для текущего запроса.
-
-    - нет параметра `project` → `400 missing_project`;
-    - проект не найден, пользователь не делал `/start` или не активный участник
-      → `403 not_registered` (существование проекта наружу не раскрываем —
-      один и тот же ответ на все три случая, TZ §3.2 п.4).
-    """
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="missing_project"
-        )
-
+    """`(project, user, membership)` по `invite_payload` проекта и `tg_user_id`
+    из проверенной `initData`. Проект не найден/неактивен, пользователь не делал
+    `/start` или не активный участник → `403 not_registered` (существование
+    проекта наружу не раскрываем — один и тот же ответ на все случаи, TZ §3.2
+    п.4). Переиспользуется ручками, где `invite_payload` приходит из query
+    (`require_project_context`) и из пути (`GET /api/projects/{payload}/events`,
+    задача 2.9.1)."""
     row = (
         await session.execute(
             select(Project, ProjectMembership, User)
             .join(ProjectMembership, ProjectMembership.project_id == Project.id)
             .join(User, User.id == ProjectMembership.user_id)
             .where(
-                Project.invite_payload == project,
+                Project.invite_payload == invite_payload,
                 Project.is_active.is_(True),
                 User.tg_user_id == tg_user_id,
                 ProjectMembership.status == MembershipStatus.ACTIVE,
@@ -72,6 +65,26 @@ async def require_project_context(
 
     return ProjectContext(
         project=row.Project, user=row.User, membership=row.ProjectMembership
+    )
+
+
+async def require_project_context(
+    tg_user_id: Annotated[int, Depends(get_tg_user_id)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    project: Annotated[str | None, Query()] = None,
+) -> ProjectContext:
+    """Зависимость: `(project, user, membership)` для текущего запроса.
+
+    - нет параметра `project` → `400 missing_project`;
+    - проект не найден, пользователь не делал `/start` или не активный участник
+      → `403 not_registered` (см. `resolve_project_context`).
+    """
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="missing_project"
+        )
+    return await resolve_project_context(
+        session, tg_user_id=tg_user_id, invite_payload=project
     )
 
 

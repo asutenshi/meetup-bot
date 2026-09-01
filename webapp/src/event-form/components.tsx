@@ -1,10 +1,13 @@
-import { useRef, type ReactNode } from 'react';
+import { useRef } from 'react';
 
 import type { EventFormMember } from '../api/events';
 import { formatDate, HOUR_OPTIONS, minuteOptions } from './datetime';
 
-/** Иконки заголовков карточек (16–17 px, цвет — var(--accent) через CSS). */
-const ICONS = {
+/**
+ * Иконки заголовков карточек формы — содержимое `<svg viewBox="0 0 24 24">`.
+ * Передаются в общий `Card` (`src/ui/`) пропом `icon`.
+ */
+export const ICONS = {
   when: (
     <path d="M3 5h18v16H3zM3 10h18M8 3v4M16 3v4" />
   ),
@@ -21,53 +24,6 @@ const ICONS = {
     <path d="M9 11a3.2 3.2 0 100-6.4A3.2 3.2 0 009 11zM3.6 19c0-3 2.4-5 5.4-5s5.4 2 5.4 5M16 5.2a3 3 0 010 5.6M18.6 19c0-2.4-1.2-4.1-3.1-4.8" />
   ),
 } as const;
-
-export function Card({
-  icon,
-  title,
-  children,
-}: {
-  icon: keyof typeof ICONS;
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="ef-card">
-      <div className="ef-card__head">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          {ICONS[icon]}
-        </svg>
-        {title}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-export function Field({
-  label,
-  htmlFor,
-  optional = false,
-  error,
-  children,
-}: {
-  label: string;
-  htmlFor?: string;
-  optional?: boolean;
-  error?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="ef-field">
-      <label className="ef-field__label" htmlFor={htmlFor}>
-        {label}
-        {optional && <span className="ef-badge">необязательно</span>}
-      </label>
-      {children}
-      {error && <span className="ef-error">{error}</span>}
-    </div>
-  );
-}
 
 /**
  * Строка-пикер даты (PickerRow из WEBAPP_DESIGN.md): своя строка с
