@@ -20,6 +20,11 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 const PLUS_ICON = <path d="M12 5v14M5 12h14" />;
+const GEAR_ICON = (
+  <path d="M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 13a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 13a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9v.09a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" />
+);
+
+const MANAGER_ROLES = new Set(['owner', 'admin']);
 
 export function HubScreen({ navigate }: { navigate: (view: View) => void }) {
   const [state, setState] = useState<HomeState>({ kind: 'loading' });
@@ -138,16 +143,31 @@ function ProjectSection({
           </ul>
         ))}
 
-      <button
-        type="button"
-        className="hub-create"
-        onClick={() => navigate({ name: 'form', project: project.payload, eventId: null })}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          {PLUS_ICON}
-        </svg>
-        Создать мероприятие
-      </button>
+      <div className="hub-actions">
+        <button
+          type="button"
+          className="hub-create"
+          onClick={() => navigate({ name: 'form', project: project.payload, eventId: null })}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            {PLUS_ICON}
+          </svg>
+          Создать мероприятие
+        </button>
+
+        {MANAGER_ROLES.has(project.role) && (
+          <button
+            type="button"
+            className="hub-create hub-create--secondary"
+            onClick={() => navigate({ name: 'settings', project: project.payload })}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              {GEAR_ICON}
+            </svg>
+            Настройки проекта
+          </button>
+        )}
+      </div>
     </Card>
   );
 }
