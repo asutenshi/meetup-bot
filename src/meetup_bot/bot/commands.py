@@ -13,7 +13,11 @@ from aiogram.types import (
     BotCommand,
     BotCommandScopeAllGroupChats,
     BotCommandScopeAllPrivateChats,
+    MenuButtonWebApp,
+    WebAppInfo,
 )
+
+from meetup_bot.services.webapp_url import build_hub_url
 
 # Команды только для лички (`F.chat.type == "private"`, см. start.py / new_event.py).
 PRIVATE_COMMANDS: list[BotCommand] = [
@@ -49,3 +53,27 @@ async def set_bot_commands(bot: Bot) -> None:
     """
     await bot.set_my_commands(PRIVATE_COMMANDS, scope=BotCommandScopeAllPrivateChats())
     await bot.set_my_commands(GROUP_COMMANDS, scope=BotCommandScopeAllGroupChats())
+
+
+# Кнопка-меню (`MenuButtonWebApp`) поддерживается только в личке; текст не
+# длиннее 64 символов (Bot API).
+_MENU_BUTTON_TEXT = "Открыть"
+
+
+async def set_menu_button(bot: Bot, *, public_base_url: str | None) -> None:
+    """Глобальная кнопка-меню слева от поля ввода → домашний экран-хаб Web App
+    (задача 2.9.1, TZ §3.8). `setChatMenuButton` без `chat_id` — одна на бота,
+    фиксированный URL хаба без контекста (проект хаб разрешает сам).
+
+    Без `public_base_url` (Mini App не раздаётся) кнопку не ставим — как и
+    `/new_event` не строит `web_app`-кнопок. В группах Telegram кнопку-меню
+    Web App всё равно показывает как список команд, отдельный вызов не нужен.
+    """
+    if not public_base_url:
+        return
+    await bot.set_chat_menu_button(
+        menu_button=MenuButtonWebApp(
+            text=_MENU_BUTTON_TEXT,
+            web_app=WebAppInfo(url=build_hub_url(public_base_url)),
+        )
+    )

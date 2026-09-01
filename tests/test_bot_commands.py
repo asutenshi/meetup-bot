@@ -6,10 +6,16 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     BotCommandScopeAllGroupChats,
     BotCommandScopeAllPrivateChats,
+    MenuButtonWebApp,
 )
 
 from meetup_bot.bot import create_dispatcher
-from meetup_bot.bot.commands import GROUP_COMMANDS, PRIVATE_COMMANDS, set_bot_commands
+from meetup_bot.bot.commands import (
+    GROUP_COMMANDS,
+    PRIVATE_COMMANDS,
+    set_bot_commands,
+    set_menu_button,
+)
 from tests.conftest import FakeBotApi
 
 _MAX_DESCRIPTION = 256
@@ -43,6 +49,26 @@ async def test_set_bot_commands_two_scoped_calls(bot: Bot, fake_bot_api: FakeBot
         "add_admin",
         "remove_admin",
     ]
+
+
+async def test_set_menu_button_points_at_hub(bot: Bot, fake_bot_api: FakeBotApi) -> None:
+    await set_menu_button(bot, public_base_url="https://example.com/")
+
+    calls = fake_bot_api.set_chat_menu_button_calls
+    assert len(calls) == 1
+    # Глобальная кнопка-меню: без chat_id (одна на бота).
+    assert calls[0].chat_id is None
+    button = calls[0].menu_button
+    assert isinstance(button, MenuButtonWebApp)
+    assert button.web_app.url == "https://example.com/app/"
+
+
+async def test_set_menu_button_skipped_without_public_base_url(
+    bot: Bot, fake_bot_api: FakeBotApi
+) -> None:
+    await set_menu_button(bot, public_base_url=None)
+
+    assert fake_bot_api.set_chat_menu_button_calls == []
 
 
 def test_command_descriptions_valid() -> None:

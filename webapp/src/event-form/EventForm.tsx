@@ -10,7 +10,8 @@ import {
   type EventFormMember,
 } from '../api/events';
 import { closeMiniApp } from '../telegram/init';
-import { Card, Field, PeopleList, PickerRow, TimeSelect } from './components';
+import { Card, Field } from '../ui/Card';
+import { ICONS, PeopleList, PickerRow, TimeSelect } from './components';
 import { combineLocal, splitLocal, toIso, toLocalInput } from './datetime';
 import './form.css';
 
@@ -265,7 +266,7 @@ export function EventForm({ eventId }: { eventId: number | null }) {
           </p>
         )}
 
-        <Card icon="when" title="Когда">
+        <Card icon={ICONS.when} title="Когда">
           <Field label="Начало" htmlFor="ef-start-date" error={errors.starts_at}>
             <div className="ef-datetime">
               <PickerRow
@@ -311,7 +312,7 @@ export function EventForm({ eventId }: { eventId: number | null }) {
           </Field>
         </Card>
 
-        <Card icon="where" title="Где">
+        <Card icon={ICONS.where} title="Где">
           <Field label="Место" htmlFor="ef-location" error={errors.location}>
             <input
               id="ef-location"
@@ -324,7 +325,7 @@ export function EventForm({ eventId }: { eventId: number | null }) {
           </Field>
         </Card>
 
-        <Card icon="about" title="О чём">
+        <Card icon={ICONS.about} title="О чём">
           <Field label="Описание" htmlFor="ef-description" error={errors.description}>
             <textarea
               id="ef-description"
@@ -336,7 +337,7 @@ export function EventForm({ eventId }: { eventId: number | null }) {
           </Field>
         </Card>
 
-        <Card icon="money" title="Деньги и места">
+        <Card icon={ICONS.money} title="Деньги и места">
           <div className="ef-two">
             <Field label="Бюджет, ₽" htmlFor="ef-budget" optional error={errors.budget}>
               <input
@@ -363,7 +364,7 @@ export function EventForm({ eventId }: { eventId: number | null }) {
           </div>
         </Card>
 
-        <Card icon="people" title="Кто организует">
+        <Card icon={ICONS.people} title="Кто организует">
           <PeopleList
             members={members}
             selected={coOrganizers}

@@ -13,7 +13,7 @@ from __future__ import annotations
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import InlineKeyboardMarkup
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meetup_bot.db.enums import EventStatus, MembershipRole, MembershipStatus, RSVPStatus
@@ -69,6 +69,30 @@ async def list_manageable_events(
         ):
             result.append(event)
     return result
+
+
+async def list_project_events(
+    session: AsyncSession, *, project_id: int
+) -> list[tuple[Event, int]]:
+    """Мероприятия проекта (кроме отменённых) вместе со счётчиком подтвердивших
+    участие — для списка на домашнем экране-хабе Web App (`GET /api/projects/
+    {payload}/events`, задача 2.9.1). Отсортированы по времени начала."""
+    going = (
+        select(EventRSVP.event_id, func.count().label("n"))
+        .where(EventRSVP.status == RSVPStatus.GOING)
+        .group_by(EventRSVP.event_id)
+        .subquery()
+    )
+    rows = await session.execute(
+        select(Event, func.coalesce(going.c.n, 0))
+        .outerjoin(going, going.c.event_id == Event.id)
+        .where(
+            Event.project_id == project_id,
+            Event.status != EventStatus.CANCELLED,
+        )
+        .order_by(Event.starts_at, Event.id)
+    )
+    return [(row[0], int(row[1])) for row in rows]
 
 
 async def resolve_member_user_id(
