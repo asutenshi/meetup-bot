@@ -39,6 +39,30 @@ describe('parseView', () => {
   it('пустой project → хаб', () => {
     expect(parseView('?project=')).toEqual({ name: 'hub' });
   });
+
+  it('project + attendance → экран корректировки явки', () => {
+    expect(parseView('?project=alpha&attendance=42')).toEqual({
+      name: 'attendance',
+      project: 'alpha',
+      eventId: 42,
+    });
+  });
+
+  it('attendance имеет приоритет над event', () => {
+    expect(parseView('?project=alpha&attendance=42&event=7')).toEqual({
+      name: 'attendance',
+      project: 'alpha',
+      eventId: 42,
+    });
+  });
+
+  it('невалидный attendance → форма', () => {
+    expect(parseView('?project=alpha&attendance=0')).toEqual({
+      name: 'form',
+      project: 'alpha',
+      eventId: null,
+    });
+  });
 });
 
 describe('viewUrl', () => {
@@ -66,11 +90,18 @@ describe('viewUrl', () => {
     );
   });
 
-  it('round-trip parseView(viewUrl) сохраняет экран (точки входа: хаб и форма)', () => {
+  it('экран корректировки явки → ?project=&attendance=', () => {
+    expect(viewUrl({ name: 'attendance', project: 'alpha', eventId: 42 }, base)).toBe(
+      '/app/?project=alpha&attendance=42',
+    );
+  });
+
+  it('round-trip parseView(viewUrl) сохраняет экран (точки входа: хаб, форма, явка)', () => {
     for (const view of [
       { name: 'hub' as const },
       { name: 'form' as const, project: 'p', eventId: null },
       { name: 'form' as const, project: 'p', eventId: 7 },
+      { name: 'attendance' as const, project: 'p', eventId: 7 },
     ]) {
       const url = viewUrl(view, '/app/');
       const search = url.includes('?') ? url.slice(url.indexOf('?')) : '';

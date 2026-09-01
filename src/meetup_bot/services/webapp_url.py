@@ -23,16 +23,25 @@ def build_hub_url(public_base_url: str) -> str:
 
 
 def build_web_app_url(
-    public_base_url: str, *, project_payload: str, event_id: int | None = None
+    public_base_url: str,
+    *,
+    project_payload: str,
+    event_id: int | None = None,
+    attendance_event_id: int | None = None,
 ) -> str:
     """`{public_base_url}/app/?project=<invite_payload>` — URL для
     `WebAppInfo(url=...)` inline-кнопки, открывающей форму Mini App в контексте
     конкретного проекта.
 
     `event_id` задан (кнопка из `/edit_event`) → добавляется `&event=<id>`, и
-    фронтенд открывает форму редактирования этого мероприятия вместо создания."""
+    фронтенд открывает форму редактирования этого мероприятия вместо создания.
+    `attendance_event_id` задан (кнопка из `/attendance`) → добавляется
+    `&attendance=<id>`, и фронтенд открывает экран постфактум-корректировки RSVP
+    (задача 3.1)."""
     base = public_base_url.rstrip("/")
     params: dict[str, str | int] = {"project": project_payload}
     if event_id is not None:
         params["event"] = event_id
+    if attendance_event_id is not None:
+        params["attendance"] = attendance_event_id
     return f"{base}{_WEBAPP_PATH}?{urlencode(params)}"
