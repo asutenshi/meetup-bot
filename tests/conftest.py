@@ -47,6 +47,7 @@ class FakeBotApi:
         self.edited_texts: list[str] = []
         self.edited_messages: list[EditMessageText] = []
         self.callback_answers: list[str] = []
+        self.callback_answer_calls: list[AnswerCallbackQuery] = []
         self.set_my_commands_calls: list[SetMyCommands] = []
         self.set_chat_menu_button_calls: list[SetChatMenuButton] = []
 
@@ -81,6 +82,7 @@ class FakeBotApi:
             return True
         if isinstance(method, AnswerCallbackQuery):
             self.callback_answers.append(method.text or "")
+            self.callback_answer_calls.append(method)
             return True
         return None
 

@@ -42,6 +42,42 @@ class RsvpError(Exception):
         self.code = code
 
 
+_RSVP_START_TARGET = {RSVPStatus.GOING: "g", RSVPStatus.NOT_GOING: "n"}
+_RSVP_START_TARGET_REV = {code: status for status, code in _RSVP_START_TARGET.items()}
+
+
+def build_rsvp_start_payload(
+    *, invite_payload: str, event_id: int, target: RSVPStatus
+) -> str:
+    """`<invite_payload>_<event_id>_<g|n>` — payload для deep-link
+    `t.me/<bot>?start=…`, которым незарегистрированного участника из-под RSVP-кнопки
+    анонса уводят в личку бота: `/start` по такому payload регистрирует человека в
+    проекте мероприятия и сразу ставит этот RSVP (см.
+    `bot/handlers/start.py`). Разбирается [[parse_rsvp_start_payload]]."""
+    return f"{invite_payload}_{event_id}_{_RSVP_START_TARGET[target]}"
+
+
+def parse_rsvp_start_payload(payload: str) -> tuple[str, int, RSVPStatus] | None:
+    """Разбирает payload, собранный [[build_rsvp_start_payload]], в
+    `(invite_payload, event_id, target)`. `None`, если формат не подходит — тогда
+    вызывающий трактует аргумент `/start` как обычный invite-payload.
+
+    Режем справа (`rsplit("_", 2)`): `invite_payload` — это
+    `secrets.token_urlsafe`, он сам может содержать `_` и `-`, а вот `event_id`
+    (только цифры) и код цели (`g`/`n`) — нет."""
+    parts = payload.rsplit("_", 2)
+    if len(parts) != 3:
+        return None
+    invite_payload, raw_event_id, raw_target = parts
+    if (
+        not invite_payload
+        or not raw_event_id.isdigit()
+        or raw_target not in _RSVP_START_TARGET_REV
+    ):
+        return None
+    return invite_payload, int(raw_event_id), _RSVP_START_TARGET_REV[raw_target]
+
+
 async def rsvp_summary(
     session: AsyncSession, *, event_id: int, user_id: int
 ) -> tuple[int, int, RSVPStatus | None]:
