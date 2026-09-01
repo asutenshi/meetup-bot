@@ -123,6 +123,12 @@
   padding: 1px 7px;
 }
 
+.hub-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .hub-create {
   display: flex;
   align-items: center;
@@ -136,6 +142,12 @@
   color: var(--accent);
   font: 600 15px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   cursor: pointer;
+}
+
+.hub-create--secondary {
+  border-color: var(--tg-sep);
+  background: transparent;
+  color: var(--tg-text);
 }
 
 .hub-create svg {

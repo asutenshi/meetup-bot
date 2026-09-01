@@ -140,6 +140,50 @@ async def test_settings_updates_timezone(
     assert settings.timezone == "Asia/Novosibirsk"
 
 
+async def test_settings_updates_all_command_throttle_seconds(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    project = await _create_project(session_factory)
+    await _add_member(
+        session_factory, project.id, tg_user_id=_ADMIN_TG_ID, role=MembershipRole.ADMIN
+    )
+
+    dispatcher = create_dispatcher(session_factory)
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(_settings_update("all_command_throttle_seconds 0")),
+    )
+
+    assert "180 → 0" in fake_bot_api.sent_texts[-1]
+    settings = await _read_settings(session_factory, project.id)
+    assert settings.all_command_throttle_seconds == 0
+
+
+async def test_settings_rejects_out_of_range_throttle(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    project = await _create_project(session_factory)
+    await _add_member(
+        session_factory, project.id, tg_user_id=_ADMIN_TG_ID, role=MembershipRole.ADMIN
+    )
+
+    dispatcher = create_dispatcher(session_factory)
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(
+            _settings_update("all_command_throttle_seconds 99999")
+        ),
+    )
+
+    assert "от 0 до 3600" in fake_bot_api.sent_texts[-1]
+    settings = await _read_settings(session_factory, project.id)
+    assert settings.all_command_throttle_seconds == 180
+
+
 async def test_settings_rejects_out_of_range_integer(
     bot: Bot,
     fake_bot_api: FakeBotApi,

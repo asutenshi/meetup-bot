@@ -167,6 +167,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{payload}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Settings */
+        get: operations["get_project_settings_api_projects__payload__settings_get"];
+        /** Update Project Settings */
+        put: operations["update_project_settings_api_projects__payload__settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -412,6 +430,39 @@ export interface components {
             /** Events */
             events: components["schemas"]["EventCard"][];
         };
+        /** ProjectSettingsResponse */
+        ProjectSettingsResponse: {
+            /** Project Name */
+            project_name: string;
+            /** Reminder Days Threshold */
+            reminder_days_threshold: number;
+            /** Missed Events Escalation Count */
+            missed_events_escalation_count: number;
+            /** Reminder Send Hour */
+            reminder_send_hour: number;
+            /** All Command Throttle Seconds */
+            all_command_throttle_seconds: number;
+            /** Timezone */
+            timezone: string;
+            /** Fields */
+            fields: components["schemas"]["SettingField"][];
+        };
+        /**
+         * ProjectSettingsUpdate
+         * @description Вся форма целиком — фронт всегда шлёт все поля.
+         */
+        ProjectSettingsUpdate: {
+            /** Reminder Days Threshold */
+            reminder_days_threshold: number;
+            /** Missed Events Escalation Count */
+            missed_events_escalation_count: number;
+            /** Reminder Send Hour */
+            reminder_send_hour: number;
+            /** All Command Throttle Seconds */
+            all_command_throttle_seconds: number;
+            /** Timezone */
+            timezone: string;
+        };
         /** RsvpRequest */
         RsvpRequest: {
             /**
@@ -437,6 +488,23 @@ export interface components {
             announcement_refreshed: boolean;
             /** Counters Recomputed */
             counters_recomputed: boolean;
+        };
+        /**
+         * SettingField
+         * @description Описание одного поля формы — фронт рисует подпись и границы из него, без
+         *     хардкода.
+         */
+        SettingField: {
+            /** Attr */
+            attr: string;
+            /** Describe */
+            describe: string;
+            /** Kind */
+            kind: string;
+            /** Min */
+            min: number | null;
+            /** Max */
+            max: number | null;
         };
         /**
          * UpdateEventRequest
@@ -871,6 +939,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SetAttendanceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_settings_api_projects__payload__settings_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Telegram-Init-Data"?: string | null;
+            };
+            path: {
+                payload: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectSettingsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_project_settings_api_projects__payload__settings_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Telegram-Init-Data"?: string | null;
+            };
+            path: {
+                payload: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectSettingsResponse"];
                 };
             };
             /** @description Validation Error */

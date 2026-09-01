@@ -5,6 +5,7 @@ import { AttendanceScreen } from './attendance/AttendanceScreen';
 import { EventForm } from './event-form/EventForm';
 import { EventScreen } from './event/EventScreen';
 import { HubScreen } from './hub/HubScreen';
+import { SettingsScreen } from './settings/SettingsScreen';
 import { useNavigation } from './nav/useNavigation';
 import './App.css';
 
@@ -13,7 +14,8 @@ import './App.css';
  * бота открывает домашний экран-хаб (без контекста в URL), ответ на `/new_event`
  * / `/edit_event` — сразу форму мероприятия, ответ на `/attendance` — экран
  * постфактум-корректировки RSVP (`?project=&attendance=<id>`, задача 3.1). С хаба
- * можно перейти к созданию мероприятия и вернуться кнопкой «назад» (задача 2.9.1).
+ * можно перейти к созданию мероприятия и вернуться кнопкой «назад» (задача 2.9.1),
+ * а owner/admin — к экрану настроек проекта (задача 4.5).
  */
 export function App() {
   if (!hasInitData()) {
@@ -58,6 +60,9 @@ function Screens() {
   }
   if (view.name === 'attendance') {
     return <AttendanceScreen eventId={view.eventId} />;
+  }
+  if (view.name === 'settings') {
+    return <SettingsScreen project={view.project} onBack={back} />;
   }
   return <HubScreen navigate={navigate} />;
 }
