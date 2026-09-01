@@ -1,64 +1,47 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { onBackButtonClick, setBackButtonVisible } from '../telegram/init';
-import { isHistoryEntry, parseView, viewUrl, type HistoryEntry, type View } from './navigation';
+import { parseView, viewUrl, type View } from './navigation';
 
 /**
- * Стек экранов Web App поверх History API (задача 2.9.1).
+ * Стек экранов Web App (задача 2.9.1).
  *
  * - начальный экран — из `window.location` (кнопки бота кладут контекст в URL);
- * - `navigate` кладёт запись через `history.pushState` и синхронизирует адресную
- *   строку (`apiFetch` читает `project` из неё);
- * - `popstate` (в т.ч. системная кнопка «назад» и кнопка «назад» Telegram, которую
- *   мы дергаем через `history.back()`) восстанавливает экран из записи;
- * - кнопка «назад» Telegram видна, пока в стеке есть куда возвращаться.
+ * - `navigate` кладёт экран в стек, `back` снимает верхний;
+ * - адресная строка подтягивается под текущий экран (`history.replaceState`) —
+ *   только чтобы `apiFetch` видел `project`; историю браузера не копим;
+ * - кнопка «назад» Telegram (там, где она есть) дублирует `back`; на клиентах
+ *   без неё навигация держится на своей строке «назад» (`BackBar`).
  */
 export function useNavigation(): {
   view: View;
+  /** Есть ли экран под текущим (кнопку «назад» показываем только тогда). */
+  canGoBack: boolean;
   navigate: (view: View) => void;
   back: () => void;
 } {
-  const [entry, setEntry] = useState<HistoryEntry>(() => {
-    const current = window.history.state;
-    if (isHistoryEntry(current)) {
-      return current;
-    }
-    const initial: HistoryEntry = { view: parseView(window.location.search), depth: 0 };
-    window.history.replaceState(initial, '');
-    return initial;
-  });
+  const [stack, setStack] = useState<View[]>(() => [parseView(window.location.search)]);
+  const view = stack[stack.length - 1];
+  const canGoBack = stack.length > 1;
 
-  const depthRef = useRef(entry.depth);
-  depthRef.current = entry.depth;
-
-  useEffect(() => {
-    function onPopState(event: PopStateEvent): void {
-      setEntry(
-        isHistoryEntry(event.state)
-          ? event.state
-          : { view: parseView(window.location.search), depth: 0 },
-      );
-    }
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
+  const navigate = useCallback((next: View) => {
+    setStack((prev) => [...prev, next]);
   }, []);
 
-  useEffect(() => {
-    const off = onBackButtonClick(() => window.history.back());
-    return off;
+  const back = useCallback(() => {
+    setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev));
   }, []);
 
+  // Адресная строка = текущий экран (для чтения `project` в apiFetch).
   useEffect(() => {
-    setBackButtonVisible(entry.depth > 0);
-  }, [entry.depth]);
+    window.history.replaceState(null, '', viewUrl(view));
+  }, [view]);
 
-  const navigate = useCallback((view: View) => {
-    const next: HistoryEntry = { view, depth: depthRef.current + 1 };
-    window.history.pushState(next, '', viewUrl(view));
-    setEntry(next);
-  }, []);
+  // Кнопка «назад» Telegram → тот же `back`. `back` стабилен (deps []).
+  useEffect(() => onBackButtonClick(back), [back]);
+  useEffect(() => {
+    setBackButtonVisible(canGoBack);
+  }, [canGoBack]);
 
-  const back = useCallback(() => window.history.back(), []);
-
-  return { view: entry.view, navigate, back };
+  return { view, canGoBack, navigate, back };
 }

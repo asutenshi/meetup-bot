@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import {
   ApiError,
@@ -10,6 +10,7 @@ import {
   type EventFormMember,
 } from '../api/events';
 import { closeMiniApp } from '../telegram/init';
+import { BackBar } from '../ui/BackBar';
 import { Card, Field } from '../ui/Card';
 import { ICONS, PeopleList, PickerRow, TimeSelect } from './components';
 import { combineLocal, splitLocal, toIso, toLocalInput } from './datetime';
@@ -37,7 +38,15 @@ function normalizeNumber(value: string): string {
   return value.trim().replace(',', '.');
 }
 
-export function EventForm({ eventId }: { eventId: number | null }) {
+export function EventForm({
+  eventId,
+  onBack,
+}: {
+  eventId: number | null;
+  /** Задан, когда форма открыта как под-экран хаба — рисуем строку «назад»
+   *  (на клиентах без кнопки «назад» Telegram это единственный путь обратно). */
+  onBack?: () => void;
+}) {
   const editing = eventId !== null;
   const [load, setLoad] = useState<LoadState>({ kind: 'loading' });
 
@@ -130,43 +139,53 @@ export function EventForm({ eventId }: { eventId: number | null }) {
     [load],
   );
 
+  const shell = (node: ReactNode): ReactNode =>
+    onBack ? (
+      <div className="ef-root">
+        <BackBar onBack={onBack} />
+        {node}
+      </div>
+    ) : (
+      node
+    );
+
   if (load.kind === 'loading') {
-    return <CenteredState title="Загрузка…" />;
+    return shell(<CenteredState title="Загрузка…" />);
   }
   if (load.kind === 'not-registered') {
-    return (
+    return shell(
       <CenteredState
         title="Вы не участник этого проекта"
         text="Зарегистрируйтесь по ссылке из поста регистрации в вашем групповом чате, потом откройте форму заново."
-      />
+      />,
     );
   }
   if (load.kind === 'no-access') {
-    return (
+    return shell(
       <CenteredState
         title="Нет доступа к редактированию"
         text="Форму открывают организаторы мероприятия, а если организатор не назначен — создатель и админы проекта."
-      />
+      />,
     );
   }
   if (load.kind === 'not-editable') {
-    return (
+    return shell(
       <CenteredState
         title="Мероприятие нельзя изменить"
         text="Оно отменено, уже прошло или удалено. Откройте список заново через /edit_event."
-      />
+      />,
     );
   }
   if (load.kind === 'load-error') {
-    return (
+    return shell(
       <CenteredState
         title="Не удалось открыть форму"
         text={`Попробуйте переоткрыть Mini App. Код: ${load.detail}`}
-      />
+      />,
     );
   }
   if (done) {
-    return (
+    return shell(
       <CenteredState
         badge="✅"
         title={editing ? 'Изменения сохранены' : 'Анонс опубликован'}
@@ -178,7 +197,7 @@ export function EventForm({ eventId }: { eventId: number | null }) {
             : 'Мероприятие создано, анонс с кнопками «Участвую» / «Не участвую» отправлен в чат проекта.'
         }
         action={{ label: 'Закрыть', onClick: closeMiniApp }}
-      />
+      />,
     );
   }
 
@@ -256,7 +275,7 @@ export function EventForm({ eventId }: { eventId: number | null }) {
     });
   }
 
-  return (
+  return shell(
     <div className="ef-screen">
       <div className="ef-scroll">
         {editing && (
@@ -395,7 +414,7 @@ export function EventForm({ eventId }: { eventId: number | null }) {
               : 'Опубликовать анонс'}
         </button>
       </div>
-    </div>
+    </div>,
   );
 }
 

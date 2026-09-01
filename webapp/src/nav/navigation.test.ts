@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isHistoryEntry, parseView, viewUrl } from './navigation';
+import { parseView, viewUrl } from './navigation';
 
 describe('parseView', () => {
   it('без параметров → хаб', () => {
@@ -70,17 +70,5 @@ describe('viewUrl', () => {
       const search = url.includes('?') ? url.slice(url.indexOf('?')) : '';
       expect(parseView(search)).toEqual(view);
     }
-  });
-});
-
-describe('isHistoryEntry', () => {
-  it('распознаёт валидную запись', () => {
-    expect(isHistoryEntry({ view: { name: 'hub' }, depth: 0 })).toBe(true);
-  });
-
-  it('отвергает чужой state', () => {
-    expect(isHistoryEntry(null)).toBe(false);
-    expect(isHistoryEntry({ foo: 1 })).toBe(false);
-    expect(isHistoryEntry({ view: { name: 'hub' } })).toBe(false);
   });
 });

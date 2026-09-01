@@ -4,9 +4,12 @@
  * Точки входа задают начальный экран через query-параметры URL кнопки
  * (`?project=…&event=…`, см. `services/webapp_url.py`): кнопка-меню бота ведёт на
  * хаб (без параметров), ответ на `/new_event` / `/edit_event` — сразу на форму.
- * Дальше переходы идут через `history.pushState`, а `viewUrl` держит адресную
- * строку согласованной с экраном, чтобы `apiFetch` по-прежнему читал `project`
- * из `window.location` (см. `api/client.ts`).
+ *
+ * Экран дальше держим в состоянии React (стек вью), а адресную строку лишь
+ * подтягиваем под текущий экран через `history.replaceState`, чтобы `apiFetch`
+ * по-прежнему читал `project` из `window.location` (`api/client.ts`). На History
+ * API как на источник навигации не опираемся: во встроенном вебвью Telegram
+ * (особенно на десктопе) `popstate` ведёт себя неодинаково.
  */
 
 export type View =
@@ -42,20 +45,4 @@ export function parseView(search: string): View {
     project,
     eventId: Number.isInteger(eventId) && eventId > 0 ? eventId : null,
   };
-}
-
-/** Запись истории: экран + глубина стека (0 — начальный, кнопка «назад» скрыта). */
-export type HistoryEntry = { view: View; depth: number };
-
-export function isHistoryEntry(value: unknown): value is HistoryEntry {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  const entry = value as Record<string, unknown>;
-  return (
-    typeof entry.depth === 'number' &&
-    typeof entry.view === 'object' &&
-    entry.view !== null &&
-    typeof (entry.view as Record<string, unknown>).name === 'string'
-  );
 }

@@ -38,10 +38,10 @@ export function App() {
 }
 
 function Screens() {
-  const { view, navigate } = useNavigation();
+  const { view, canGoBack, navigate, back } = useNavigation();
 
   if (view.name === 'form') {
-    return <EventForm eventId={view.eventId} />;
+    return <EventForm eventId={view.eventId} onBack={canGoBack ? back : undefined} />;
   }
   return <HubScreen navigate={navigate} />;
 }
