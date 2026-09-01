@@ -19,8 +19,14 @@ from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meetup_bot.db.enums import RSVPStatus
+from meetup_bot.db.models import Event, Project
 from meetup_bot.services.event_announcement import RSVP_CALLBACK_PREFIX
-from meetup_bot.services.rsvp import RsvpError, RsvpOutcome, set_rsvp
+from meetup_bot.services.rsvp import (
+    RsvpError,
+    RsvpOutcome,
+    build_rsvp_start_payload,
+    set_rsvp,
+)
 
 _ERROR_TEXT = {
     "event_not_found": "Мероприятие не найдено.",
@@ -35,6 +41,27 @@ _OUTCOME_TEXT = {
     RsvpOutcome.NOT_GOING: "Вы не участвуете ❌",
     RsvpOutcome.CLEARED: "Отметка снята — вы пока не ответили 🤔",
 }
+
+
+async def _registration_deeplink(
+    bot: Bot, session: AsyncSession, event_id: int, target: RSVPStatus
+) -> str | None:
+    """`t.me/<bot>?start=…` для незарегистрированного зрителя анонса: по этой
+    ссылке `/start` заведёт его в проект мероприятия и поставит нажатый RSVP
+    (`bot/handlers/start.py`). `None`, если мероприятие/проект успели пропасть
+    между проверкой в `set_rsvp` и этим шагом — тогда откатываемся на обычный
+    алерт «сначала зарегистрируйтесь»."""
+    event = await session.get(Event, event_id)
+    if event is None:
+        return None
+    project = await session.get(Project, event.project_id)
+    if project is None:
+        return None
+    me = await bot.get_me()
+    payload = build_rsvp_start_payload(
+        invite_payload=project.invite_payload, event_id=event_id, target=target
+    )
+    return f"https://t.me/{me.username}?start={payload}"
 
 
 def _parse_callback(data: str) -> tuple[int, RSVPStatus] | None:
@@ -73,6 +100,11 @@ def create_router() -> Router:
                 target=target,
             )
         except RsvpError as exc:
+            if exc.code == "not_registered":
+                url = await _registration_deeplink(bot, session, event_id, target)
+                if url is not None:
+                    await callback.answer(url=url)
+                    return
             await callback.answer(_ERROR_TEXT[exc.code], show_alert=True)
             return
 

@@ -14,7 +14,14 @@ from meetup_bot.db.models import (
     ProjectSettings,
     User,
 )
-from meetup_bot.services.rsvp import RsvpError, RsvpOutcome, rsvp_summary, set_rsvp
+from meetup_bot.services.rsvp import (
+    RsvpError,
+    RsvpOutcome,
+    build_rsvp_start_payload,
+    parse_rsvp_start_payload,
+    rsvp_summary,
+    set_rsvp,
+)
 
 _MEMBER_TG_ID = 222
 _OUTSIDER_TG_ID = 999
@@ -163,3 +170,32 @@ async def test_set_rsvp_event_not_found(
                 target=RSVPStatus.GOING,
             )
     assert exc.value.code == "event_not_found"
+
+
+@pytest.mark.parametrize(
+    "invite_payload",
+    ["alpha", "tok_en-with_both", "-_-_-", "endswithunderscore_"],
+)
+@pytest.mark.parametrize("target", [RSVPStatus.GOING, RSVPStatus.NOT_GOING])
+def test_rsvp_start_payload_round_trip(
+    invite_payload: str, target: RSVPStatus
+) -> None:
+    payload = build_rsvp_start_payload(
+        invite_payload=invite_payload, event_id=42, target=target
+    )
+    assert parse_rsvp_start_payload(payload) == (invite_payload, 42, target)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "plain-invite-payload",
+        "no_number_g",
+        "alpha_12_x",
+        "alpha_12",
+        "_12_g",
+        "alpha_-1_g",
+    ],
+)
+def test_parse_rsvp_start_payload_rejects_non_matching(payload: str) -> None:
+    assert parse_rsvp_start_payload(payload) is None

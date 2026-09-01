@@ -338,7 +338,7 @@ async def test_repeated_going_click_does_not_clear_rsvp(
     assert fake_bot_api.callback_answers[-1] == "Вы участвуете ✅"
 
 
-async def test_non_member_click_is_rejected(
+async def test_non_member_click_gets_registration_deeplink(
     bot: Bot,
     fake_bot_api: FakeBotApi,
     session_factory: async_sessionmaker[AsyncSession],
@@ -358,7 +358,36 @@ async def test_non_member_click_is_rejected(
     async with session_factory() as session:
         assert list(await session.scalars(select(EventRSVP.id))) == []
     assert fake_bot_api.edited_messages == []
-    assert any("зарегистрируйтесь" in a.lower() for a in fake_bot_api.callback_answers)
+    # Вместо алерта — ответ с deep-link в личку бота: /start по нему
+    # зарегистрирует и поставит этот же RSVP.
+    answer = fake_bot_api.callback_answer_calls[-1]
+    assert answer.text is None
+    assert answer.url == f"https://t.me/test_bot?start=alpha_{ids['event_id']}_g"
+
+
+async def test_non_member_not_going_click_deeplink_carries_target(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed(session_factory)
+    dispatcher = create_dispatcher(session_factory)
+
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(
+            _rsvp_callback(
+                ids["event_id"],
+                "not_going",
+                user_id=_OUTSIDER_TG_ID,
+                first_name="Чужак",
+                username=None,
+            )
+        ),
+    )
+
+    answer = fake_bot_api.callback_answer_calls[-1]
+    assert answer.url == f"https://t.me/test_bot?start=alpha_{ids['event_id']}_n"
 
 
 async def test_removed_member_click_is_rejected(

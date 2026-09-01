@@ -329,6 +329,33 @@
       остаётся идемпотентным). Частично закрывает «повторные клики по RSVP» из
       задачи 5.1.
 
+- [x] **RSVP от незарегистрированного участника → запуск бота и регистрация
+      (задача 2.6).** Раньше `services/rsvp.py::set_rsvp` для пользователя без
+      активного `ProjectMembership` кидал `RsvpError("not_registered")`, а
+      `bot/handlers/rsvp.py` показывал всплывающее «Сначала зарегистрируйтесь…» —
+      человек должен был сам найти пост регистрации.
+      Закрыто: вход в регистрацию прямо из-под кнопки анонса.
+      - `bot/handlers/rsvp.py` при `not_registered` отвечает `answerCallbackQuery`
+        с `url = https://t.me/<bot>?start=<payload>` (для callback-кнопки инлайн-
+        клавиатуры Telegram открывает deep-link на бота) вместо алерта;
+      - `services/rsvp.py::build_rsvp_start_payload` /
+        `parse_rsvp_start_payload` — формат payload `<invite_payload>_<event_id>_<g|n>`,
+        разбор через `rsplit("_", 2)` (сам `invite_payload` от
+        `secrets.token_urlsafe` содержит `_`/`-`); проект резолвится по
+        `invite_payload`, так что «секретность» инвайта сохраняется;
+      - `bot/handlers/start.py`: payload такого вида → `_try_register_with_rsvp`
+        (upsert `User`/`ProjectMembership(member)` + самоотметка через общий
+        `set_rsvp`, т.е. живое обновление анонса и проверки переиспользуются);
+        приветствие подтверждает участие. Если проект/мероприятие по payload не
+        нашлись — откат на трактовку аргумента как обычного invite-payload;
+      - граничные случаи: мероприятие отменено/финализировано на момент `/start`
+        — в проект регистрируем, RSVP не ставим, сообщаем почему; `status=removed`
+        реактивируется штатным `ensure_membership`.
+      Тесты: round-trip/reject хелперов payload (`test_services_rsvp.py`),
+      `answerCallbackQuery.url` вместо алерта (`test_bot_rsvp.py`), сквозной
+      `/start` с RSVP-намерением — going/not_going/отменено/финализировано/откат
+      (`test_bot_start_rsvp.py`). (TZ §3.3, шаг 5; §4.3 «RSVP»)
+
 - [ ] **Краткое / подробное описание мероприятия (`Event.details`).** Сейчас
       `POST /api/events` разрешает `description` до 4000 символов — одно это
       может переполнить анонс (лимит сообщения Telegram ~4096, TZ §6.4) ещё до
