@@ -9,6 +9,7 @@ from meetup_bot.bot.handlers import (
     attendance,
     cancel_event,
     chat_member,
+    chat_migration,
     edit_event,
     new_event,
     rsvp,
@@ -36,6 +37,7 @@ def create_dispatcher(
     dispatcher.update.outer_middleware(DbSessionMiddleware(session_factory))
     dispatcher.update.outer_middleware(AllThrottleMiddleware())
     dispatcher.include_router(chat_member.create_router())
+    dispatcher.include_router(chat_migration.create_router())
     dispatcher.include_router(setup_registration.create_router())
     dispatcher.include_router(start.create_router())
     dispatcher.include_router(all_members.create_router())

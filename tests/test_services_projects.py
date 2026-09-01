@@ -1,8 +1,10 @@
-from sqlalchemy import select
+import datetime
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meetup_bot.db.enums import MembershipRole, MembershipStatus, TopicCategory
-from meetup_bot.db.models import ProjectMembership, ProjectSettings
+from meetup_bot.db.models import Event, Project, ProjectMembership, ProjectSettings
 from meetup_bot.services.projects import (
     demote_to_member,
     ensure_membership,
@@ -13,6 +15,7 @@ from meetup_bot.services.projects import (
     is_project_owner,
     is_rights_gate_satisfied,
     list_user_active_projects,
+    migrate_project_chat_id,
     provision_project,
     remove_membership,
     resolve_thread_id,
@@ -505,6 +508,127 @@ async def test_demote_to_member_strips_admin_role(session: AsyncSession) -> None
     demote_to_member(membership)
 
     assert membership.role == MembershipRole.MEMBER
+
+
+async def test_migrate_project_chat_id_repoints_existing_project(session: AsyncSession) -> None:
+    """Повышение группы до супергруппы меняет `chat.id` — проект должен переехать
+    на новый `tg_chat_id`, сохранив id, инвайт-ссылку и участников, а не
+    продублироваться."""
+    project, _, _ = await provision_project(
+        session,
+        tg_chat_id=-5540338868,
+        chat_name="bezdari-test",
+        thread_id=None,
+        force_thread_id=False,
+        admin_tg_user_id=1,
+        admin_username="admin",
+        admin_first_name="Admin",
+        admin_last_name=None,
+    )
+    await session.commit()
+    project_id, payload = project.id, project.invite_payload
+
+    changed = await migrate_project_chat_id(
+        session, old_chat_id=-5540338868, new_chat_id=-1003796522778
+    )
+    await session.commit()
+
+    assert changed is True
+    migrated = await session.get(Project, project_id)
+    assert migrated is not None
+    assert migrated.tg_chat_id == -1003796522778
+    assert migrated.invite_payload == payload
+    assert await session.scalar(select(func.count()).select_from(Project)) == 1
+
+
+async def test_migrate_project_chat_id_is_idempotent(session: AsyncSession) -> None:
+    """Оба служебных сообщения (в старой группе и в новой супергруппе) и повторный
+    `my_chat_member` ведут в перенос — второй вызов ничего не делает."""
+    project, _ = await get_or_create_project(session, tg_chat_id=-100, name="Friends")
+    await session.commit()
+
+    first = await migrate_project_chat_id(session, old_chat_id=-100, new_chat_id=-100500)
+    await session.commit()
+    second = await migrate_project_chat_id(session, old_chat_id=-100, new_chat_id=-100500)
+
+    assert first is True
+    assert second is False
+
+
+async def test_migrate_project_chat_id_noop_for_unknown_group(session: AsyncSession) -> None:
+    changed = await migrate_project_chat_id(session, old_chat_id=-1, new_chat_id=-100500)
+    assert changed is False
+
+
+async def test_migrate_project_chat_id_merges_race_created_duplicate(
+    session: AsyncSession,
+) -> None:
+    """Гонка: `my_chat_member` в супергруппе успел создать пустой проект-дубль
+    раньше служебного сообщения о миграции. Оставляем проект со старой историей,
+    сносим дубль."""
+    old_project, _, _ = await provision_project(
+        session,
+        tg_chat_id=-100,
+        chat_name="Friends",
+        thread_id=None,
+        force_thread_id=False,
+        admin_tg_user_id=1,
+        admin_username="admin",
+        admin_first_name="Admin",
+        admin_last_name=None,
+    )
+    dup_project, _, _ = await provision_project(
+        session,
+        tg_chat_id=-100500,
+        chat_name="Friends",
+        thread_id=None,
+        force_thread_id=False,
+        admin_tg_user_id=1,
+        admin_username="admin",
+        admin_first_name="Admin",
+        admin_last_name=None,
+    )
+    await session.commit()
+    kept_id, dup_id = old_project.id, dup_project.id
+
+    changed = await migrate_project_chat_id(session, old_chat_id=-100, new_chat_id=-100500)
+    await session.commit()
+
+    assert changed is True
+    assert await session.get(Project, dup_id) is None
+    kept = await session.get(Project, kept_id)
+    assert kept is not None
+    assert kept.tg_chat_id == -100500
+    assert await session.scalar(select(func.count()).select_from(ProjectSettings)) == 1
+    assert await session.scalar(select(func.count()).select_from(ProjectMembership)) == 1
+
+
+async def test_migrate_project_chat_id_keeps_both_when_duplicate_has_events(
+    session: AsyncSession,
+) -> None:
+    """Если в проект-дубль уже попали мероприятия — автослияние не рискуем делать,
+    оба проекта остаются, в лог уходит warning."""
+    old_project, _ = await get_or_create_project(session, tg_chat_id=-100, name="Friends")
+    dup_project, _ = await get_or_create_project(session, tg_chat_id=-100500, name="Friends")
+    creator = await get_or_create_user(
+        session, tg_user_id=1, username="u", first_name="U", last_name=None
+    )
+    await session.flush()
+    session.add(
+        Event(
+            project_id=dup_project.id,
+            description="test",
+            starts_at=datetime.datetime(2026, 9, 10, 18, 0, tzinfo=datetime.UTC),
+            location="somewhere",
+            created_by=creator.id,
+        )
+    )
+    await session.commit()
+
+    changed = await migrate_project_chat_id(session, old_chat_id=-100, new_chat_id=-100500)
+
+    assert changed is False
+    assert await session.scalar(select(func.count()).select_from(Project)) == 2
 
 
 async def test_ensure_membership_reactivation_resets_role_to_argument(

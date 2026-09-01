@@ -1,17 +1,21 @@
 import datetime
+import logging
 import secrets
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meetup_bot.db.enums import MembershipRole, MembershipStatus, TopicCategory
 from meetup_bot.db.models import (
+    Event,
     Project,
     ProjectMembership,
     ProjectSettings,
     ProjectTopicSetting,
     User,
 )
+
+logger = logging.getLogger("meetup_bot.bot")
 
 
 async def get_or_create_project(
@@ -107,6 +111,81 @@ async def provision_project(
     role = MembershipRole.OWNER if created else MembershipRole.ADMIN
     await ensure_membership(session, project_id=project.id, user_id=user.id, role=role)
     return project, created, thread_changed
+
+
+async def _delete_project(session: AsyncSession, project_id: int) -> None:
+    """Физически удаляет `Project` и висящие на нём строки (`ProjectMembership`,
+    `ProjectTopicSetting`, `ProjectSettings`). Применяется только к пустому
+    авто-созданному дублю в [[migrate_project_chat_id]] — на проект с
+    мероприятиями не вызывается."""
+    await session.execute(
+        delete(ProjectMembership).where(ProjectMembership.project_id == project_id)
+    )
+    await session.execute(
+        delete(ProjectTopicSetting).where(ProjectTopicSetting.project_id == project_id)
+    )
+    await session.execute(
+        delete(ProjectSettings).where(ProjectSettings.project_id == project_id)
+    )
+    await session.execute(delete(Project).where(Project.id == project_id))
+
+
+async def migrate_project_chat_id(
+    session: AsyncSession, *, old_chat_id: int, new_chat_id: int
+) -> bool:
+    """Переносит проект со старого `tg_chat_id` на новый при повышении обычной
+    группы до супергруппы: Telegram при этом меняет `chat.id` и присылает
+    служебное сообщение с `migrate_to_chat_id` (в старой группе) и
+    `migrate_from_chat_id` (в новой супергруппе). Без переноса бот видит
+    супергруппу как новый чат и [[get_or_create_project]] заводит проект-дубль —
+    со своей инвайт-ссылкой, в отрыве от уже зарегистрированных участников,
+    топиков и мероприятий (TZ §3.3).
+
+    Идемпотентна: оба служебных сообщения и возможный повторный `my_chat_member`
+    в супергруппе ведут сюда, повторный вызов — no-op. Возвращает `True`, если
+    что-то изменилось (вызывающая сторона делает `commit`).
+
+    Гонка: если `my_chat_member` в супергруппе успел создать пустой проект под
+    `new_chat_id`, он удаляется, а проект со старой историей переезжает на его
+    место. Если в этот проект-дубль уже попали мероприятия (маловероятно —
+    окно между служебным сообщением и `my_chat_member` мало), автоматическое
+    слияние не делается: оба проекта остаются, в лог уходит warning."""
+    if old_chat_id == new_chat_id:
+        return False
+
+    old_project = await session.scalar(
+        select(Project).where(Project.tg_chat_id == old_chat_id)
+    )
+    if old_project is None:
+        # Старую группу бот проектом не знал — переносить нечего.
+        return False
+
+    new_project = await session.scalar(
+        select(Project).where(Project.tg_chat_id == new_chat_id)
+    )
+    if new_project is None:
+        old_project.tg_chat_id = new_chat_id
+        return True
+
+    if new_project.id == old_project.id:
+        return False
+
+    events_in_dup = await session.scalar(
+        select(func.count()).select_from(Event).where(Event.project_id == new_project.id)
+    )
+    if events_in_dup:
+        logger.warning(
+            "миграция чата %s -> %s: под новым chat_id уже есть проект id=%s "
+            "с мероприятиями, автослияние не выполняется — требуется ручное",
+            old_chat_id,
+            new_chat_id,
+            new_project.id,
+        )
+        return False
+
+    await _delete_project(session, new_project.id)
+    old_project.tg_chat_id = new_chat_id
+    return True
 
 
 async def ensure_membership(
