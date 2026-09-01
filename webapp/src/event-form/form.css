@@ -4,11 +4,26 @@
   акцент — исключительно var(--accent) и производные.
 */
 
+/* Обёртка формы как под-экрана хаба: строка «назад» сверху, экран — на всю
+   оставшуюся высоту. */
+.ef-root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--tg-bg);
+}
+
 .ef-screen {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--tg-bg);
+}
+
+.ef-root .ef-screen,
+.ef-root .ef-state {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .ef-scroll {

@@ -338,6 +338,26 @@ async def list_user_active_projects(
     return list(result)
 
 
+async def list_user_projects_with_role(
+    session: AsyncSession, *, tg_user_id: int
+) -> list[tuple[Project, MembershipRole]]:
+    """Активные проекты участника вместе с его ролью в каждом, по имени проекта.
+    Нужно домашнему экрану-хабу Web App (`GET /api/home`, задача 2.9.1): он
+    показывает секцию на каждый проект и роль пользователя в ней."""
+    result = await session.execute(
+        select(Project, ProjectMembership.role)
+        .join(ProjectMembership, ProjectMembership.project_id == Project.id)
+        .join(User, User.id == ProjectMembership.user_id)
+        .where(
+            User.tg_user_id == tg_user_id,
+            ProjectMembership.status == MembershipStatus.ACTIVE,
+            Project.is_active.is_(True),
+        )
+        .order_by(Project.name, Project.id)
+    )
+    return [(row.Project, row.role) for row in result]
+
+
 async def list_active_memberships(
     session: AsyncSession, *, project_id: int, role: MembershipRole | None = None
 ) -> list[tuple[ProjectMembership, User]]:

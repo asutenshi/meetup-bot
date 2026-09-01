@@ -56,6 +56,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/home": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Home */
+        get: operations["home_api_home_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{payload}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Project Events */
+        get: operations["project_events_api_projects__payload__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -116,6 +150,28 @@ export interface components {
             members: components["schemas"]["EventFormMember"][];
             event: components["schemas"]["EventFormData"];
         };
+        /** EventCard */
+        EventCard: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string | null;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /** Ends At */
+            ends_at: string | null;
+            /** Location */
+            location: string;
+            /** Seats Limit */
+            seats_limit: number | null;
+            /** Going Count */
+            going_count: number;
+            /** Is Finalized */
+            is_finalized: boolean;
+        };
         /**
          * EventFormContext
          * @description Контекст для отрисовки формы создания мероприятия.
@@ -162,6 +218,31 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HomeProject */
+        HomeProject: {
+            /** Payload */
+            payload: string;
+            /** Name */
+            name: string;
+            /** Role */
+            role: string;
+        };
+        /**
+         * HomeResponse
+         * @description Кто пользователь и в каких он проектах. `projects` пуст → пользователь не
+         *     делал `/start` ни в одном чате (состояние «вы не зарегистрированы» на хабе).
+         */
+        HomeResponse: {
+            /** User Name */
+            user_name: string;
+            /** Projects */
+            projects: components["schemas"]["HomeProject"][];
+        };
+        /** ProjectEventsResponse */
+        ProjectEventsResponse: {
+            /** Events */
+            events: components["schemas"]["EventCard"][];
         };
         /**
          * UpdateEventRequest
@@ -349,6 +430,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UpdateEventResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    home_api_home_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Telegram-Init-Data"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HomeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    project_events_api_projects__payload__events_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Telegram-Init-Data"?: string | null;
+            };
+            path: {
+                payload: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectEventsResponse"];
                 };
             };
             /** @description Validation Error */
