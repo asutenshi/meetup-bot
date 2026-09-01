@@ -56,6 +56,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events/{event_id}/attendance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Attendance Context */
+        get: operations["attendance_context_api_events__event_id__attendance_get"];
+        put?: never;
+        /** Set Attendance */
+        post: operations["set_attendance_api_events__event_id__attendance_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -77,6 +95,31 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AttendanceContext
+         * @description Контекст экрана корректировки: подпись проекта/мероприятия и участники.
+         */
+        AttendanceContext: {
+            /** Project Name */
+            project_name: string;
+            /** Event Label */
+            event_label: string;
+            /** Finalized */
+            finalized: boolean;
+            /** Counters Locked */
+            counters_locked: boolean;
+            /** Participants */
+            participants: components["schemas"]["AttendanceParticipant"][];
+        };
+        /** AttendanceParticipant */
+        AttendanceParticipant: {
+            /** User Id */
+            user_id: number;
+            /** Name */
+            name: string;
+            /** Status */
+            status: ("going" | "not_going") | null;
+        };
         /** CreateEventRequest */
         CreateEventRequest: {
             /**
@@ -162,6 +205,24 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** SetAttendanceRequest */
+        SetAttendanceRequest: {
+            /** User Id */
+            user_id: number;
+            /** Status */
+            status: ("going" | "not_going") | null;
+        };
+        /** SetAttendanceResponse */
+        SetAttendanceResponse: {
+            /** User Id */
+            user_id: number;
+            /** Status */
+            status: ("going" | "not_going") | null;
+            /** Announcement Refreshed */
+            announcement_refreshed: boolean;
+            /** Counters Recomputed */
+            counters_recomputed: boolean;
         };
         /**
          * UpdateEventRequest
@@ -349,6 +410,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UpdateEventResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    attendance_context_api_events__event_id__attendance_get: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: {
+                "X-Telegram-Init-Data"?: string | null;
+            };
+            path: {
+                event_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceContext"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_attendance_api_events__event_id__attendance_post: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: {
+                "X-Telegram-Init-Data"?: string | null;
+            };
+            path: {
+                event_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAttendanceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetAttendanceResponse"];
                 };
             };
             /** @description Validation Error */

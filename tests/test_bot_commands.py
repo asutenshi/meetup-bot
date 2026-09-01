@@ -31,6 +31,7 @@ async def test_set_bot_commands_two_scoped_calls(bot: Bot, fake_bot_api: FakeBot
         "new_event",
         "edit_event",
         "cancel_event",
+        "attendance",
     ]
     assert [c.command for c in group.commands] == [
         "setup_registration",

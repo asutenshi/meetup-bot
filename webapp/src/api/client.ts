@@ -44,6 +44,19 @@ export function getEventContext(): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+/**
+ * Значение query-параметра `attendance` из URL Mini App. Бот подставляет его в
+ * кнопку из ответа на `/attendance` (задача 3.1): при наличии открывается экран
+ * постфактум-корректировки RSVP этого мероприятия. Нет параметра или он не
+ * похож на положительный id — `null`.
+ */
+export function getAttendanceContext(): number | null {
+  const value = new URLSearchParams(window.location.search).get('attendance');
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 function initDataHeader(): Record<string, string> {
   const raw = rawInitData();
   return raw ? { 'X-Telegram-Init-Data': raw } : {};

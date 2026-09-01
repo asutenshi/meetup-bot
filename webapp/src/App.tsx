@@ -1,24 +1,36 @@
 import { AppRoot } from '@telegram-apps/telegram-ui';
 
-import { getEventContext, getProjectContext, hasInitData } from './api/client';
+import {
+  getAttendanceContext,
+  getEventContext,
+  getProjectContext,
+  hasInitData,
+} from './api/client';
+import { AttendanceScreen } from './attendance/AttendanceScreen';
 import { EventForm } from './event-form/EventForm';
 import './App.css';
 
 /**
- * Точка входа Web App. Экран — форма мероприятия: создание (кнопка из ответа
- * бота на `/new_event`, `?project=<invite_payload>`) либо редактирование, если
- * в URL есть ещё `&event=<id>` (кнопка из `/edit_event`, TASKS.md 2.7).
- * Домашний экран-хаб и роутинг между экранами — задача 2.9.
+ * Точка входа Web App. Экраны различаются по query-параметрам URL кнопки бота:
+ * `&attendance=<id>` — экран постфактум-корректировки RSVP (`/attendance`,
+ * TASKS.md 3.1); `&event=<id>` — форма редактирования мероприятия
+ * (`/edit_event`, 2.7); иначе — форма создания (`/new_event`). Параметры
+ * взаимоисключающие; домашний экран-хаб и роутинг между экранами — задача 2.9.
  */
 export function App() {
   const insideTelegram = hasInitData();
   const project = getProjectContext();
   const eventId = getEventContext();
+  const attendanceEventId = getAttendanceContext();
 
   if (insideTelegram && project) {
     return (
       <AppRoot>
-        <EventForm eventId={eventId} />
+        {attendanceEventId !== null ? (
+          <AttendanceScreen eventId={attendanceEventId} />
+        ) : (
+          <EventForm eventId={eventId} />
+        )}
       </AppRoot>
     );
   }

@@ -21,6 +21,7 @@ PRIVATE_COMMANDS: list[BotCommand] = [
     BotCommand(command="new_event", description="Создать мероприятие"),
     BotCommand(command="edit_event", description="Редактировать мероприятие"),
     BotCommand(command="cancel_event", description="Отменить мероприятие"),
+    BotCommand(command="attendance", description="Поправить явку участников"),
 ]
 
 # Все групповые команды зарегистрированы на `group`/`supergroup` и доступны
