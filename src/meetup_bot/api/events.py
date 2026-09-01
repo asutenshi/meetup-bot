@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import datetime
 import decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 from aiogram import Bot
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meetup_bot.api.context import ProjectContext, get_bot, require_project_context
-from meetup_bot.db.enums import EventStatus, MembershipRole, MembershipStatus
+from meetup_bot.db.enums import EventStatus, MembershipRole, MembershipStatus, RSVPStatus
 from meetup_bot.db.models import Event, EventCoOrganizer, ProjectMembership, ProjectSettings, User
 from meetup_bot.db.session import get_session
 from meetup_bot.services.event_announcement import (
@@ -33,6 +33,7 @@ from meetup_bot.services.event_announcement import (
     refresh_event_announcement,
 )
 from meetup_bot.services.events import can_manage_event, notify_going_members
+from meetup_bot.services.rsvp import RsvpError, rsvp_summary, set_rsvp
 
 router = APIRouter(prefix="/api", tags=["events"])
 
@@ -325,3 +326,150 @@ async def update_event(
         announcement_message_id=event.announcement_message_id,
         notified_going=notified,
     )
+
+
+class EventViewCoOrganizer(BaseModel):
+    user_id: int
+    name: str
+
+
+class EventRsvpSummary(BaseModel):
+    going_count: int
+    not_going_count: int
+    my_rsvp: Literal["going", "not_going"] | None
+
+
+class EventView(BaseModel):
+    """Мероприятие для экрана Web App (задача 2.9.2): поля + со-организаторы +
+    сводка RSVP + личная отметка + признак прав на управление + ссылка на анонс.
+    Доступен любому активному участнику проекта (в отличие от `GET /api/events/
+    {id}`, требующего прав на управление)."""
+
+    id: int
+    title: str | None
+    starts_at: datetime.datetime
+    ends_at: datetime.datetime | None
+    location: str
+    description: str
+    budget_per_person: decimal.Decimal | None
+    seats_limit: int | None
+    status: str
+    is_finalized: bool
+    co_organizers: list[EventViewCoOrganizer]
+    rsvp: EventRsvpSummary
+    announcement_url: str | None
+    # Может ли текущий пользователь редактировать/отменять мероприятие прямо
+    # сейчас — фронт по нему рисует меню «⋯» в шапке экрана.
+    can_manage: bool
+
+
+class RsvpRequest(BaseModel):
+    status: Literal["going", "not_going"]
+
+
+_RSVP_ERROR_STATUS = {
+    "event_not_found": 404,
+    "event_cancelled": 409,
+    "event_finalized": 409,
+    "not_registered": 403,
+}
+
+
+async def _load_project_event(
+    session: AsyncSession, ctx: ProjectContext, event_id: int
+) -> Event:
+    """Мероприятие проекта из контекста. `404 event_not_found` — чужой id или его
+    нет (существование в другом проекте наружу не раскрываем)."""
+    event = await session.get(Event, event_id)
+    if event is None or event.project_id != ctx.project.id:
+        raise HTTPException(status_code=404, detail="event_not_found")
+    return event
+
+
+async def _can_manage_now(
+    session: AsyncSession, ctx: ProjectContext, event: Event
+) -> bool:
+    """Вправе ли текущий пользователь редактировать/отменять `event` прямо
+    сейчас — те же условия, что в `_load_manageable_event`."""
+    if event.status != EventStatus.PLANNED or event.attendance_finalized_at is not None:
+        return False
+    is_admin = ctx.membership.role in (MembershipRole.OWNER, MembershipRole.ADMIN)
+    return await can_manage_event(
+        session, event=event, user_id=ctx.user.id, is_admin=is_admin
+    )
+
+
+async def _rsvp_summary(
+    session: AsyncSession, *, event_id: int, user_id: int
+) -> EventRsvpSummary:
+    going, not_going, mine = await rsvp_summary(
+        session, event_id=event_id, user_id=user_id
+    )
+    return EventRsvpSummary(
+        going_count=going,
+        not_going_count=not_going,
+        my_rsvp=mine.value if mine is not None else None,
+    )
+
+
+@router.get("/events/{event_id}/view")
+async def event_view(
+    event_id: int,
+    ctx: Annotated[ProjectContext, Depends(require_project_context)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> EventView:
+    event = await _load_project_event(session, ctx, event_id)
+
+    co_rows = await session.execute(
+        select(User)
+        .join(EventCoOrganizer, EventCoOrganizer.user_id == User.id)
+        .where(EventCoOrganizer.event_id == event.id)
+        .order_by(EventCoOrganizer.id)
+    )
+    co_organizers = [
+        EventViewCoOrganizer(user_id=user.id, name=_display_name(user))
+        for user in co_rows.scalars()
+    ]
+
+    return EventView(
+        id=event.id,
+        title=event.title,
+        starts_at=event.starts_at,
+        ends_at=event.ends_at,
+        location=event.location,
+        description=event.description,
+        budget_per_person=event.budget_per_person,
+        seats_limit=event.seats_limit,
+        status=event.status.value,
+        is_finalized=event.attendance_finalized_at is not None,
+        co_organizers=co_organizers,
+        rsvp=await _rsvp_summary(session, event_id=event.id, user_id=ctx.user.id),
+        announcement_url=announcement_deep_link(
+            ctx.project.tg_chat_id, event.announcement_message_id
+        ),
+        can_manage=await _can_manage_now(session, ctx, event),
+    )
+
+
+@router.post("/events/{event_id}/rsvp")
+async def event_rsvp(
+    event_id: int,
+    payload: RsvpRequest,
+    ctx: Annotated[ProjectContext, Depends(require_project_context)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    bot: Annotated[Bot, Depends(get_bot)],
+) -> EventRsvpSummary:
+    await _load_project_event(session, ctx, event_id)
+    try:
+        await set_rsvp(
+            bot,
+            session,
+            event_id=event_id,
+            tg_user_id=ctx.user.tg_user_id,
+            target=RSVPStatus(payload.status),
+        )
+    except RsvpError as exc:
+        raise HTTPException(
+            status_code=_RSVP_ERROR_STATUS[exc.code], detail=exc.code
+        ) from exc
+    return await _rsvp_summary(session, event_id=event_id, user_id=ctx.user.id)

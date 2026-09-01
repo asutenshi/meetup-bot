@@ -2,14 +2,11 @@
 (TZ §4.3 «RSVP», задача 2.6).
 
 `callback_data` кнопок анонса — `rsvp:<event_id>:<going|not_going>` (см.
-`services/event_announcement.py`). Нажатие → upsert `EventRSVP` по
-(`event_id`, `user_id`) с `updated_by = user_id` (самоотметка). Повторное
-нажатие переключает статус, а не копит записи. Повторный клик по «❌ Не участвую»
-у того, кто уже отмечен `not_going`, снимает отметку целиком — строка `EventRSVP`
-удаляется, человек возвращается в группу «ещё думает» (в анонсе отдельно не
-показывается). Каждое изменение сразу правит текст анонса
-(`refresh_event_announcement`): счётчик подтвердивших и оба списка никнеймов.
-Ответ на нажатие — короткое всплывающее подтверждение, без сообщения в чат.
+`services/event_announcement.py`). Вся логика — upsert `EventRSVP` по
+(`event_id`, `user_id`) с `updated_by = user_id`, проверки и перерисовка анонса —
+в `services/rsvp.py::set_rsvp` (общий код с экраном мероприятия в Web App,
+задача 2.9.2). Здесь только разбор `callback_data` и перевод результата в
+короткое всплывающее подтверждение.
 
 Постфактум-правка чужого RSVP организатором/админом (`updated_by != user_id`) —
 отдельный сценарий (Web App, задача 3.2), не этот хендлер.
@@ -19,25 +16,25 @@ from __future__ import annotations
 
 from aiogram import Bot, F, Router
 from aiogram.types import CallbackQuery
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from meetup_bot.db.enums import EventStatus, MembershipStatus, RSVPStatus
-from meetup_bot.db.models import Event, EventRSVP, ProjectMembership, User
-from meetup_bot.services.event_announcement import (
-    RSVP_CALLBACK_PREFIX,
-    refresh_event_announcement,
-)
+from meetup_bot.db.enums import RSVPStatus
+from meetup_bot.services.event_announcement import RSVP_CALLBACK_PREFIX
+from meetup_bot.services.rsvp import RsvpError, RsvpOutcome, set_rsvp
 
-_NOT_REGISTERED_TEXT = (
-    "Сначала зарегистрируйтесь в проекте по ссылке из поста регистрации."
-)
-_EVENT_GONE_TEXT = "Мероприятие не найдено."
-_EVENT_CANCELLED_TEXT = "Мероприятие отменено."
-_EVENT_FINALIZED_TEXT = "Явка уже зафиксирована — ответ больше не изменить."
-_GOING_TEXT = "Вы участвуете ✅"
-_NOT_GOING_TEXT = "Вы не участвуете ❌"
-_RSVP_CLEARED_TEXT = "Отметка снята — вы пока не ответили 🤔"
+_ERROR_TEXT = {
+    "event_not_found": "Мероприятие не найдено.",
+    "event_cancelled": "Мероприятие отменено.",
+    "event_finalized": "Явка уже зафиксирована — ответ больше не изменить.",
+    "not_registered": (
+        "Сначала зарегистрируйтесь в проекте по ссылке из поста регистрации."
+    ),
+}
+_OUTCOME_TEXT = {
+    RsvpOutcome.GOING: "Вы участвуете ✅",
+    RsvpOutcome.NOT_GOING: "Вы не участвуете ❌",
+    RsvpOutcome.CLEARED: "Отметка снята — вы пока не ответили 🤔",
+}
 
 
 def _parse_callback(data: str) -> tuple[int, RSVPStatus] | None:
@@ -67,76 +64,18 @@ def create_router() -> Router:
             return
         event_id, target = parsed
 
-        event = await session.get(Event, event_id)
-        if event is None:
-            await callback.answer(_EVENT_GONE_TEXT, show_alert=True)
-            return
-        if event.status == EventStatus.CANCELLED:
-            await callback.answer(_EVENT_CANCELLED_TEXT, show_alert=True)
-            return
-        # После финализации явки RSVP правит только организатор через Web App
-        # (TZ §3.4 п.1, задача 3.2) — самоотметка кнопкой уже недоступна.
-        if event.attendance_finalized_at is not None:
-            await callback.answer(_EVENT_FINALIZED_TEXT, show_alert=True)
-            return
-
-        # Кнопку под групповым анонсом видит весь чат, поэтому членство
-        # проверяем на каждый клик, а не доверяем факту нажатия.
-        user = await session.scalar(
-            select(User)
-            .join(ProjectMembership, ProjectMembership.user_id == User.id)
-            .where(
-                ProjectMembership.project_id == event.project_id,
-                ProjectMembership.status == MembershipStatus.ACTIVE,
-                User.tg_user_id == callback.from_user.id,
+        try:
+            outcome = await set_rsvp(
+                bot,
+                session,
+                event_id=event_id,
+                tg_user_id=callback.from_user.id,
+                target=target,
             )
-        )
-        if user is None:
-            await callback.answer(_NOT_REGISTERED_TEXT, show_alert=True)
+        except RsvpError as exc:
+            await callback.answer(_ERROR_TEXT[exc.code], show_alert=True)
             return
 
-        rsvp = await session.scalar(
-            select(EventRSVP).where(
-                EventRSVP.event_id == event_id,
-                EventRSVP.user_id == user.id,
-            )
-        )
-        # Повторный клик по «❌ Не участвую» у уже отмеченного not_going снимает
-        # отметку: строку удаляем, человек возвращается в «ещё думает». Для
-        # «✅ Участвую» такого нет — повторный клик остаётся идемпотентным.
-        if (
-            rsvp is not None
-            and target == RSVPStatus.NOT_GOING
-            and rsvp.status == RSVPStatus.NOT_GOING
-        ):
-            await session.delete(rsvp)
-            await session.flush()
-            await refresh_event_announcement(bot, session, event)
-            await session.commit()
-            await callback.answer(_RSVP_CLEARED_TEXT)
-            return
-
-        changed = rsvp is None or rsvp.status != target
-        if rsvp is None:
-            session.add(
-                EventRSVP(
-                    event_id=event_id,
-                    user_id=user.id,
-                    status=target,
-                    updated_by=user.id,
-                )
-            )
-        else:
-            rsvp.status = target
-            rsvp.updated_by = user.id
-
-        if changed:
-            await session.flush()
-            await refresh_event_announcement(bot, session, event)
-        await session.commit()
-
-        await callback.answer(
-            _GOING_TEXT if target == RSVPStatus.GOING else _NOT_GOING_TEXT
-        )
+        await callback.answer(_OUTCOME_TEXT[outcome])
 
     return router

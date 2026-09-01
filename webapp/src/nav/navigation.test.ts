@@ -60,7 +60,13 @@ describe('viewUrl', () => {
     );
   });
 
-  it('round-trip parseView(viewUrl) сохраняет экран', () => {
+  it('экран мероприятия → ?project=&event= (нужен apiFetch, не точка входа)', () => {
+    expect(viewUrl({ name: 'event', project: 'alpha', eventId: 42 }, base)).toBe(
+      '/app/?project=alpha&event=42',
+    );
+  });
+
+  it('round-trip parseView(viewUrl) сохраняет экран (точки входа: хаб и форма)', () => {
     for (const view of [
       { name: 'hub' as const },
       { name: 'form' as const, project: 'p', eventId: null },

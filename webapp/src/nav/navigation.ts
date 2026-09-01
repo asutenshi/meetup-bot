@@ -4,6 +4,9 @@
  * Точки входа задают начальный экран через query-параметры URL кнопки
  * (`?project=…&event=…`, см. `services/webapp_url.py`): кнопка-меню бота ведёт на
  * хаб (без параметров), ответ на `/new_event` / `/edit_event` — сразу на форму.
+ * Экран мероприятия — только навигационный (тап по строке списка на хабе), своей
+ * точки входа по URL у него нет: `?project=&event=` при заходе извне по-прежнему
+ * открывает форму редактирования (`/edit_event`).
  *
  * Экран дальше держим в состоянии React (стек вью), а адресную строку лишь
  * подтягиваем под текущий экран через `history.replaceState`, чтобы `apiFetch`
@@ -14,12 +17,15 @@
 
 export type View =
   | { name: 'hub' }
-  | { name: 'form'; project: string; eventId: number | null };
+  | { name: 'form'; project: string; eventId: number | null }
+  | { name: 'event'; project: string; eventId: number };
 
 /** Базовый путь Mini App (`/app/`), совпадает с `base` в vite.config.ts. */
 const BASE = import.meta.env.BASE_URL;
 
-/** URL адресной строки для экрана — тот же контракт параметров, что у кнопок бота. */
+/** URL адресной строки для экрана — тот же контракт параметров, что у кнопок бота.
+ *  Нужен только чтобы `apiFetch` видел `?project=`; экран мероприятия и форма
+ *  редактирования дают одинаковый URL — на источник навигации мы его не берём. */
 export function viewUrl(view: View, base: string = BASE): string {
   if (view.name === 'hub') {
     return base;

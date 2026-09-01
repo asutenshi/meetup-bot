@@ -1,4 +1,11 @@
-import { backButton, init, miniApp, themeParams, viewport } from '@tma.js/sdk';
+import {
+  backButton,
+  init,
+  miniApp,
+  openTelegramLink,
+  themeParams,
+  viewport,
+} from '@tma.js/sdk';
 
 let started = false;
 
@@ -84,4 +91,21 @@ export function closeMiniApp(): void {
   if (miniApp.close.isAvailable()) {
     miniApp.close();
   }
+}
+
+/**
+ * Открыть ссылку на Telegram (`t.me/…`) — переход к анонсу с экрана мероприятия.
+ * Внутри Telegram это делает `openTelegramLink` (закрывает Mini App и открывает
+ * чат), вне — обычное `window.open`.
+ */
+export function openTelegramLinkSafe(url: string): void {
+  try {
+    if (openTelegramLink.isAvailable()) {
+      openTelegramLink(url);
+      return;
+    }
+  } catch {
+    // клиент не поддерживает — падаем на window.open ниже
+  }
+  window.open(url, '_blank', 'noopener');
 }

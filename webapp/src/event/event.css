@@ -1,0 +1,154 @@
+/*
+  Экран мероприятия Web App (задача 2.9.2, WEBAPP_DESIGN.md — «Секции-карточки»).
+  Только семантические токены; акцент — исключительно var(--accent) и производные.
+*/
+
+.es-root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--tg-bg);
+}
+
+.es-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.es-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--tg-text);
+}
+
+.es-banner {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-field);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tg-hint);
+  background: var(--tg-section);
+  border: 1px solid var(--tg-sep);
+}
+
+.es-banner--danger {
+  color: var(--tg-destructive);
+  border-color: color-mix(in srgb, var(--tg-destructive) 40%, var(--tg-sep));
+  background: color-mix(in srgb, var(--tg-destructive) 8%, var(--tg-section));
+}
+
+.es-line {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--tg-text);
+}
+
+.es-line--pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.es-muted {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--tg-hint);
+}
+
+.es-people {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 15px;
+  color: var(--tg-text);
+}
+
+.es-counts {
+  margin: 0;
+  display: flex;
+  gap: 16px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.es-counts__going {
+  color: var(--accent);
+}
+
+.es-counts__no {
+  color: var(--tg-hint);
+}
+
+.es-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.es-toggle__btn {
+  min-height: 46px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  background: var(--tg-bg);
+  color: var(--tg-text);
+  font: 600 15px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  cursor: pointer;
+}
+
+.es-toggle__btn--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.es-toggle__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.es-link {
+  align-self: flex-start;
+  padding: 8px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: 600 15px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  cursor: pointer;
+}
+
+.es-state {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px 24px;
+  text-align: center;
+  background: var(--tg-bg);
+}
+
+.es-state__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--tg-text);
+}
+
+.es-state__text {
+  margin: 0;
+  max-width: 320px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--tg-hint);
+}

@@ -56,6 +56,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events/{event_id}/view": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Event View */
+        get: operations["event_view_api_events__event_id__view_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/rsvp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Event Rsvp */
+        post: operations["event_rsvp_api_events__event_id__rsvp_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/home": {
         parameters: {
             query?: never;
@@ -214,6 +248,61 @@ export interface components {
             /** Is Self */
             is_self: boolean;
         };
+        /** EventRsvpSummary */
+        EventRsvpSummary: {
+            /** Going Count */
+            going_count: number;
+            /** Not Going Count */
+            not_going_count: number;
+            /** My Rsvp */
+            my_rsvp: ("going" | "not_going") | null;
+        };
+        /**
+         * EventView
+         * @description Мероприятие для экрана Web App (задача 2.9.2): поля + со-организаторы +
+         *     сводка RSVP + личная отметка + признак прав на управление + ссылка на анонс.
+         *     Доступен любому активному участнику проекта (в отличие от `GET /api/events/
+         *     {id}`, требующего прав на управление).
+         */
+        EventView: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string | null;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /** Ends At */
+            ends_at: string | null;
+            /** Location */
+            location: string;
+            /** Description */
+            description: string;
+            /** Budget Per Person */
+            budget_per_person: string | null;
+            /** Seats Limit */
+            seats_limit: number | null;
+            /** Status */
+            status: string;
+            /** Is Finalized */
+            is_finalized: boolean;
+            /** Co Organizers */
+            co_organizers: components["schemas"]["EventViewCoOrganizer"][];
+            rsvp: components["schemas"]["EventRsvpSummary"];
+            /** Announcement Url */
+            announcement_url: string | null;
+            /** Can Manage */
+            can_manage: boolean;
+        };
+        /** EventViewCoOrganizer */
+        EventViewCoOrganizer: {
+            /** User Id */
+            user_id: number;
+            /** Name */
+            name: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -243,6 +332,14 @@ export interface components {
         ProjectEventsResponse: {
             /** Events */
             events: components["schemas"]["EventCard"][];
+        };
+        /** RsvpRequest */
+        RsvpRequest: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "going" | "not_going";
         };
         /**
          * UpdateEventRequest
@@ -430,6 +527,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UpdateEventResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    event_view_api_events__event_id__view_get: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: {
+                "X-Telegram-Init-Data"?: string | null;
+            };
+            path: {
+                event_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    event_rsvp_api_events__event_id__rsvp_post: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: {
+                "X-Telegram-Init-Data"?: string | null;
+            };
+            path: {
+                event_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RsvpRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventRsvpSummary"];
                 };
             };
             /** @description Validation Error */
