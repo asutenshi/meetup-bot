@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime
 import decimal
 from html import escape
+from weakref import WeakKeyDictionary
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot
@@ -30,8 +31,46 @@ from meetup_bot.db.models import (
     User,
 )
 from meetup_bot.services.projects import resolve_thread_id
+from meetup_bot.services.webapp_url import build_event_startapp_url
 
 RSVP_CALLBACK_PREFIX = "rsvp"
+
+# Короткое имя Mini App в BotFather (`Settings.webapp_short_name`) для ссылок
+# `t.me/<bot>/<app>?startapp=…` под анонсом. Кладётся один раз при старте
+# приложения (`configure_announcements`, вызывается из `app.py` lifespan);
+# ключ — экземпляр `Bot`, чтобы тесты с разными ботами не влияли друг на друга.
+# Без записи (тесты, что не проверяют кнопку) кнопка «Подробности» не рисуется.
+_WEBAPP_SHORT_NAME: WeakKeyDictionary[Bot, str] = WeakKeyDictionary()
+
+
+def configure_announcements(bot: Bot, *, webapp_short_name: str | None) -> None:
+    """Связывает `bot` с коротким именем Mini App — тогда под анонсами
+    мероприятий с заполненным `details` появляется кнопка «📄 Подробности
+    мероприятия» (deep-link `startapp` на экран мероприятия в Web App).
+    Без вызова (или с `None`) кнопка не добавляется."""
+    if webapp_short_name:
+        _WEBAPP_SHORT_NAME[bot] = webapp_short_name
+    else:
+        _WEBAPP_SHORT_NAME.pop(bot, None)
+
+
+async def _event_details_url(
+    bot: Bot, *, invite_payload: str, event_id: int
+) -> str | None:
+    """`t.me/<bot>/<app>?startapp=…` на экран мероприятия — либо `None`, если
+    короткое имя Mini App не сконфигурировано (`configure_announcements`)."""
+    short_name = _WEBAPP_SHORT_NAME.get(bot)
+    if not short_name:
+        return None
+    me = await bot.me()
+    if me.username is None:  # pragma: no cover — у бота всегда есть username
+        return None
+    return build_event_startapp_url(
+        bot_username=me.username,
+        short_name=short_name,
+        invite_payload=invite_payload,
+        event_id=event_id,
+    )
 
 DEFAULT_TIMEZONE = "Europe/Moscow"
 
@@ -45,21 +84,34 @@ def rsvp_callback_data(event_id: int, status: RSVPStatus) -> str:
     return f"{RSVP_CALLBACK_PREFIX}:{event_id}:{status.value}"
 
 
-def build_rsvp_keyboard(event_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+def build_rsvp_keyboard(
+    event_id: int, *, details_url: str | None = None
+) -> InlineKeyboardMarkup:
+    """Пара кнопок «Участвую» / «Не участвую» под анонсом. Если у мероприятия
+    заполнено подробное описание (`details_url` задан) — сверху добавляется
+    кнопка-ссылка «📄 Подробности мероприятия» на экран мероприятия в Web App."""
+    rows: list[list[InlineKeyboardButton]] = []
+    if details_url is not None:
+        rows.append(
             [
                 InlineKeyboardButton(
-                    text="✅ Участвую",
-                    callback_data=rsvp_callback_data(event_id, RSVPStatus.GOING),
-                ),
-                InlineKeyboardButton(
-                    text="❌ Не участвую",
-                    callback_data=rsvp_callback_data(event_id, RSVPStatus.NOT_GOING),
-                ),
+                    text="📄 Подробности мероприятия", url=details_url
+                )
             ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="✅ Участвую",
+                callback_data=rsvp_callback_data(event_id, RSVPStatus.GOING),
+            ),
+            InlineKeyboardButton(
+                text="❌ Не участвую",
+                callback_data=rsvp_callback_data(event_id, RSVPStatus.NOT_GOING),
+            ),
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _mention(user: User) -> str:
@@ -179,6 +231,9 @@ def build_announcement_text(
     lines.append(f"📍 {escape(event.location)}")
     lines.append("")
     lines.append(escape(event.description))
+    if event.details:
+        lines.append("")
+        lines.append("📄 Подробности — в приложении")
 
     extras: list[str] = []
     if event.budget_per_person is not None:
@@ -226,6 +281,7 @@ class EventSnapshot:
         "ends_at",
         "location",
         "description",
+        "details",
         "budget_per_person",
         "seats_limit",
     )
@@ -235,6 +291,7 @@ class EventSnapshot:
         self.ends_at = event.ends_at
         self.location = event.location
         self.description = event.description
+        self.details = event.details
         self.budget_per_person = event.budget_per_person
         self.seats_limit = event.seats_limit
 
@@ -246,10 +303,11 @@ def build_event_update_notification(
     `None`, если ни одно отслеживаемое поле не поменялось (тогда рассылки нет).
 
     Заголовок и тон зависят от того, что правили: перенос даты/времени — с
-    пометкой ⚠️, смена места — 📍, прочие правки (описание/бюджет/лимит) — мягкое
-    «обновили детали». Для даты и места показываем «было → стало»; текст
-    описания в личку не тащим — только пометку «посмотрите в анонсе». Кнопки к
-    уведомлению добавляет `build_event_update_keyboard`."""
+    пометкой ⚠️, смена места — 📍, прочие правки (описание/подробности/бюджет/
+    лимит) — мягкое «обновили детали». Для даты и места показываем «было →
+    стало»; тексты описания и подробностей в личку не тащим — только пометку
+    «посмотрите в анонсе / в приложении». Кнопки к уведомлению добавляет
+    `build_event_update_keyboard`."""
     tz = _resolve_tz(timezone)
 
     when_changed = (
@@ -257,6 +315,7 @@ def build_event_update_notification(
     )
     location_changed = before.location != event.location
     description_changed = before.description != event.description
+    details_changed = before.details != event.details
     budget_changed = before.budget_per_person != event.budget_per_person
     seats_changed = before.seats_limit != event.seats_limit
 
@@ -264,6 +323,7 @@ def build_event_update_notification(
         when_changed
         or location_changed
         or description_changed
+        or details_changed
         or budget_changed
         or seats_changed
     ):
@@ -291,6 +351,8 @@ def build_event_update_notification(
         body.append(f"Было: <s>{escape(before.location)}</s>")
     if description_changed:
         body.append("📝 Поправили описание — посмотрите в анонсе")
+    if details_changed:
+        body.append("📄 Обновили подробности — посмотрите в приложении")
     if budget_changed:
         if event.budget_per_person is None:
             body.append("💰 Бюджет с человека больше не указан")
@@ -348,6 +410,7 @@ async def publish_event_announcement(
     event: Event,
     *,
     chat_id: int,
+    invite_payload: str,
     co_organizers: list[User],
     going: list[User],
     not_going: list[User],
@@ -357,6 +420,13 @@ async def publish_event_announcement(
     `message_id` (его вызывающий кладёт в `Event.announcement_message_id`)."""
     thread_id = await resolve_thread_id(
         session, project_id=event.project_id, category=TopicCategory.EVENTS
+    )
+    details_url = (
+        await _event_details_url(
+            bot, invite_payload=invite_payload, event_id=event.id
+        )
+        if event.details
+        else None
     )
     message = await bot.send_message(
         chat_id=chat_id,
@@ -368,7 +438,7 @@ async def publish_event_announcement(
             not_going=not_going,
             timezone=timezone,
         ),
-        reply_markup=build_rsvp_keyboard(event.id),
+        reply_markup=build_rsvp_keyboard(event.id, details_url=details_url),
     )
     return message.message_id
 
@@ -476,11 +546,17 @@ async def refresh_event_announcement(
         not_going=not_going,
         timezone=timezone,
     )
-    keyboard = (
-        None
-        if event.status == EventStatus.CANCELLED
-        else build_rsvp_keyboard(event.id)
-    )
+    if event.status == EventStatus.CANCELLED:
+        keyboard = None
+    else:
+        details_url = (
+            await _event_details_url(
+                bot, invite_payload=project.invite_payload, event_id=event.id
+            )
+            if event.details
+            else None
+        )
+        keyboard = build_rsvp_keyboard(event.id, details_url=details_url)
     try:
         await bot.edit_message_text(
             text=text,

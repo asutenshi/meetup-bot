@@ -27,6 +27,7 @@ from meetup_bot.services.event_announcement import (
     build_event_update_keyboard,
     build_event_update_notification,
     build_rsvp_keyboard,
+    configure_announcements,
     refresh_event_announcement,
     refresh_member_announcements,
     rsvp_callback_data,
@@ -375,12 +376,57 @@ def test_rsvp_keyboard_callback_data() -> None:
     assert datas == ["rsvp:42:going", "rsvp:42:not_going"]
 
 
+def test_rsvp_keyboard_prepends_details_button() -> None:
+    keyboard = build_rsvp_keyboard(
+        42, details_url="https://t.me/meetup_bot/app?startapp=alpha_42"
+    )
+    rows = keyboard.inline_keyboard
+
+    assert len(rows) == 2
+    assert rows[0][0].text == "📄 Подробности мероприятия"
+    assert rows[0][0].url == "https://t.me/meetup_bot/app?startapp=alpha_42"
+    assert [b.callback_data for b in rows[1]] == [
+        rsvp_callback_data(42, RSVPStatus.GOING),
+        rsvp_callback_data(42, RSVPStatus.NOT_GOING),
+    ]
+
+
+def test_announcement_shows_details_hint_only_when_details_set() -> None:
+    with_details = build_announcement_text(
+        _event(details="Программа: 10:00 сбор, 11:00 старт"),
+        co_organizers=[],
+        going=[],
+        not_going=[],
+        timezone="Europe/Moscow",
+    )
+    without = build_announcement_text(
+        _event(), co_organizers=[], going=[], not_going=[], timezone="Europe/Moscow"
+    )
+
+    assert "📄 Подробности — в приложении" in with_details
+    # сам подробный текст в анонс не идёт
+    assert "10:00 сбор" not in with_details
+    assert "📄 Подробности — в приложении" not in without
+
+
+def test_update_notification_flags_details_change() -> None:
+    before = _snapshot(details=None)
+    event = _event(details="Добавили программу")
+
+    text = build_event_update_notification(before, event, timezone="Europe/Moscow")
+
+    assert text is not None
+    assert "📄 Обновили подробности — посмотрите в приложении" in text
+    assert "Добавили программу" not in text
+
+
 async def _seed_event(
     session_factory: async_sessionmaker[AsyncSession],
     *,
     announcement_message_id: int | None = 500,
     status: EventStatus = EventStatus.PLANNED,
     finalized: bool = False,
+    details: str | None = None,
 ) -> dict[str, int]:
     """Проект с двумя участниками (Аня, Миша), оба со `status=going`."""
     async with session_factory() as session:
@@ -407,6 +453,7 @@ async def _seed_event(
         event = Event(
             project_id=project.id,
             description="Прогулка",
+            details=details,
             starts_at=STARTS_AT,
             location="Парк",
             status=status,
@@ -493,6 +540,43 @@ async def test_refresh_event_announcement_renders_not_going_block(
     assert "❌ Не участвует: 1" in text
     assert text.index("✅ Участвует") < text.index("@anya") < text.index("❌ Не участвует")
     assert text.index("❌ Не участвует") < text.index("@misha")
+
+
+async def test_refresh_event_announcement_adds_details_button_when_configured(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed_event(session_factory, details="Полная программа")
+    configure_announcements(bot, webapp_short_name="app")
+
+    async with session_factory() as session:
+        event = await session.get(Event, ids["event_id"])
+        assert event is not None
+        await refresh_event_announcement(bot, session, event)
+
+    rows = fake_bot_api.edited_messages[-1].reply_markup.inline_keyboard
+    assert rows[0][0].text == "📄 Подробности мероприятия"
+    assert rows[0][0].url == (
+        f"https://t.me/test_bot/app?startapp=alpha_{ids['event_id']}"
+    )
+
+
+async def test_refresh_event_announcement_no_details_button_without_short_name(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed_event(session_factory, details="Полная программа")
+    configure_announcements(bot, webapp_short_name=None)
+
+    async with session_factory() as session:
+        event = await session.get(Event, ids["event_id"])
+        assert event is not None
+        await refresh_event_announcement(bot, session, event)
+
+    rows = fake_bot_api.edited_messages[-1].reply_markup.inline_keyboard
+    assert all(b.url is None for row in rows for b in row)
 
 
 async def test_refresh_event_announcement_removes_keyboard_when_cancelled(

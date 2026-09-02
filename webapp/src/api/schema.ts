@@ -255,6 +255,8 @@ export interface components {
             location: string;
             /** Description */
             description: string;
+            /** Details */
+            details?: string | null;
             /** Budget Per Person */
             budget_per_person?: number | string | null;
             /** Seats Limit */
@@ -329,6 +331,8 @@ export interface components {
             location: string;
             /** Description */
             description: string;
+            /** Details */
+            details: string | null;
             /** Budget Per Person */
             budget_per_person: string | null;
             /** Seats Limit */
@@ -377,6 +381,8 @@ export interface components {
             location: string;
             /** Description */
             description: string;
+            /** Details */
+            details: string | null;
             /** Budget Per Person */
             budget_per_person: string | null;
             /** Seats Limit */
@@ -523,6 +529,8 @@ export interface components {
             location: string;
             /** Description */
             description: string;
+            /** Details */
+            details?: string | null;
             /** Budget Per Person */
             budget_per_person?: number | string | null;
             /** Seats Limit */

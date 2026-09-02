@@ -15,6 +15,12 @@
  * по-прежнему читал `project` из `window.location` (`api/client.ts`). На History
  * API как на источник навигации не опираемся: во встроенном вебвью Telegram
  * (особенно на десктопе) `popstate` ведёт себя неодинаково.
+ *
+ * Отдельная точка входа — `startapp`-ссылка под групповым анонсом
+ * (`t.me/<bot>/<app>?startapp=<invite_payload>_<eventId>`, кнопка «Подробности
+ * мероприятия»): контекст приходит не в URL, а в `tgWebAppStartParam` launch-
+ * параметров (`telegram/init.ts::getStartParam`). Такой заход открывает экран
+ * мероприятия поверх хаба (`parseInitialStack`), чтобы «назад» вёл на хаб.
  */
 
 export type View =
@@ -66,4 +72,45 @@ export function parseView(search: string): View {
     project,
     eventId: positiveInt(params.get('event')),
   };
+}
+
+/**
+ * Разбор `startapp`-параметра `<invite_payload>_<eventId>` (кнопка «Подробности
+ * мероприятия» под групповым анонсом) в экран мероприятия. `null`, если формат
+ * не подходит. Режем по последнему `_`: `invite_payload` сам может содержать
+ * `_`/`-`, а `eventId` — только цифры.
+ */
+export function parseStartParam(
+  startParam: string | undefined,
+): Extract<View, { name: 'event' }> | null {
+  if (!startParam) {
+    return null;
+  }
+  const sep = startParam.lastIndexOf('_');
+  if (sep <= 0) {
+    return null;
+  }
+  const project = startParam.slice(0, sep);
+  const eventId = positiveInt(startParam.slice(sep + 1));
+  if (!project || eventId === null) {
+    return null;
+  }
+  return { name: 'event', project, eventId };
+}
+
+/**
+ * Начальный стек экранов. Обычно — один экран, разобранный из query-строки
+ * (кнопки бота кладут контекст в URL). Для входа по `startapp`-ссылке под
+ * анонсом (контекст в `startParam`, не в URL, и `?project=` в URL нет) — пара
+ * `[хаб, экран мероприятия]`, чтобы кнопка «назад» вела на хаб.
+ */
+export function parseInitialStack(
+  search: string,
+  startParam: string | undefined,
+): View[] {
+  const deep = parseStartParam(startParam);
+  if (deep && !new URLSearchParams(search).get('project')) {
+    return [{ name: 'hub' }, deep];
+  }
+  return [parseView(search)];
 }

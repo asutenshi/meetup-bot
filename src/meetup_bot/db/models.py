@@ -157,7 +157,14 @@ class Event(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("project.id"))
     title: Mapped[str | None] = mapped_column(String)
+    # Краткая афиша: идёт в анонс группы, поэтому лимит короткий (см.
+    # `api/events.py`, TZ §2.6/§4.3 «Описание: краткое и подробное»).
     description: Mapped[str] = mapped_column(Text)
+    # Подробное описание (программа, что взять, как добраться) — опциональное,
+    # показывается только на экране мероприятия в Web App, в анонс не идёт
+    # (TZ §2.6, §4.3). Если заполнено — под анонсом появляется кнопка-ссылка
+    # на экран мероприятия.
+    details: Mapped[str | None] = mapped_column(Text)
     starts_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True))
     # Опциональное окончание для многодневных мероприятий; `null` — считаем
     # эффективным окончанием `starts_at`. Влияет только на момент финализации

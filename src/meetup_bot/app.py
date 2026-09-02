@@ -12,6 +12,7 @@ from meetup_bot.bot import create_bot, create_dispatcher
 from meetup_bot.bot.commands import set_bot_commands, set_menu_button
 from meetup_bot.config import Settings, get_settings
 from meetup_bot.db.session import create_engine, create_session_factory
+from meetup_bot.services.event_announcement import configure_announcements
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -27,6 +28,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # апдейтов (TZ §3.6, §3.8).
         await set_bot_commands(app.state.bot)
         await set_menu_button(app.state.bot, public_base_url=settings.public_base_url)
+        # Короткое имя Mini App для кнопки «Подробности» под анонсом (TZ §4.3).
+        configure_announcements(
+            app.state.bot, webapp_short_name=settings.webapp_short_name
+        )
         try:
             yield
         finally:

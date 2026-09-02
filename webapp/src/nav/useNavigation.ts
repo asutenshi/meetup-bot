@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { onBackButtonClick, setBackButtonVisible } from '../telegram/init';
-import { parseView, viewUrl, type View } from './navigation';
+import { getStartParam, onBackButtonClick, setBackButtonVisible } from '../telegram/init';
+import { parseInitialStack, viewUrl, type View } from './navigation';
 
 /**
  * Стек экранов Web App (задача 2.9.1).
@@ -24,7 +24,13 @@ export function useNavigation(): {
   navigate: (view: View) => void;
   back: () => void;
 } {
-  const [stack, setStack] = useState<View[]>(() => [parseView(window.location.search)]);
+  const [stack, setStack] = useState<View[]>(() => {
+    const initial = parseInitialStack(window.location.search, getStartParam());
+    // Подтягиваем адресную строку под верхний экран сразу (для входа по
+    // startapp-ссылке в URL нет `?project=`, а `apiFetch` его читает).
+    window.history.replaceState(null, '', viewUrl(initial[initial.length - 1]));
+    return initial;
+  });
   const view = stack[stack.length - 1];
   const canGoBack = stack.length > 1;
 

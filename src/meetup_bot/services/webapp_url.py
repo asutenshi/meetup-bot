@@ -45,3 +45,39 @@ def build_web_app_url(
     if attendance_event_id is not None:
         params["attendance"] = attendance_event_id
     return f"{base}{_WEBAPP_PATH}?{urlencode(params)}"
+
+
+def build_event_start_param(*, invite_payload: str, event_id: int) -> str:
+    """`<invite_payload>_<event_id>` — значение `startapp` для ссылки
+    `t.me/<bot>/<app>?startapp=…`, открывающей экран мероприятия в Web App прямо
+    из группового анонса (TZ §3.8, §4.3).
+
+    Оба сегмента укладываются в допустимый для `startapp` алфавит
+    (`[A-Za-z0-9_-]`, ≤ 512): `invite_payload` — это `secrets.token_urlsafe`
+    (base64url), `event_id` — только цифры. Разбирается [[parse_event_start_param]]."""
+    return f"{invite_payload}_{event_id}"
+
+
+def parse_event_start_param(param: str) -> tuple[str, int] | None:
+    """Разбирает значение, собранное [[build_event_start_param]], в
+    `(invite_payload, event_id)`. `None`, если формат не подходит.
+
+    Режем справа (`rsplit("_", 1)`): `invite_payload` сам может содержать `_`/`-`,
+    а `event_id` — только цифры."""
+    invite_payload, _, raw_event_id = param.rpartition("_")
+    if not invite_payload or not raw_event_id.isdigit():
+        return None
+    return invite_payload, int(raw_event_id)
+
+
+def build_event_startapp_url(
+    *, bot_username: str, short_name: str, invite_payload: str, event_id: int
+) -> str:
+    """`https://t.me/<bot_username>/<short_name>?startapp=<invite_payload>_<event_id>`
+    — URL для inline-кнопки под групповым анонсом: открывает Mini App сразу на
+    экране мероприятия (TZ §3.8, §4.3). `short_name` — зарегистрированное в
+    BotFather короткое имя Mini App (`Settings.webapp_short_name`)."""
+    start_param = build_event_start_param(
+        invite_payload=invite_payload, event_id=event_id
+    )
+    return f"https://t.me/{bot_username}/{short_name}?startapp={start_param}"

@@ -3,6 +3,7 @@ import {
   init,
   miniApp,
   openTelegramLink,
+  retrieveLaunchParams,
   themeParams,
   viewport,
 } from '@tma.js/sdk';
@@ -50,6 +51,20 @@ export function initTelegram(): void {
   // Снимает нативный лоадер Telegram — экран готов к показу.
   if (miniApp.ready.isAvailable()) {
     miniApp.ready();
+  }
+}
+
+/**
+ * Значение `tgWebAppStartParam` launch-параметров — то, что стоит после
+ * `?startapp=` в ссылке `t.me/<bot>/<app>?startapp=…` (кнопка «Подробности
+ * мероприятия» под групповым анонсом). Вне Telegram и без параметра —
+ * `undefined`.
+ */
+export function getStartParam(): string | undefined {
+  try {
+    return retrieveLaunchParams().tgWebAppStartParam || undefined;
+  } catch {
+    return undefined;
   }
 }
 
