@@ -1,6 +1,8 @@
+import logging
 import pathlib
 
 import httpx
+import pytest
 
 from meetup_bot.app import create_app
 from meetup_bot.config import Settings
@@ -49,6 +51,30 @@ async def test_webapp_not_mounted_without_build() -> None:
     paths = {getattr(route, "path", "") for route in app.routes}
 
     assert not any(p.startswith("/app") for p in paths)
+
+
+async def test_unhandled_request_exception_is_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = create_app(_settings())
+
+    @app.get("/api/_boom")
+    async def _boom() -> None:
+        raise RuntimeError("kaboom")
+
+    caplog.set_level(logging.ERROR, logger="meetup_bot.api")
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/api/_boom")
+
+    assert response.status_code == 500
+    (record,) = [r for r in caplog.records if r.message == "unhandled request exception"]
+    assert record.path == "/api/_boom"
+    assert record.method == "GET"
+    assert "kaboom" in caplog.text
 
 
 async def test_webapp_served_when_dist_exists(tmp_path: pathlib.Path) -> None:

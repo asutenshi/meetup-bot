@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import logging
 import time
 from datetime import timedelta
 from typing import Annotated
@@ -155,3 +156,29 @@ async def test_dependency_respects_configured_max_age() -> None:
 
     assert response.status_code == 401
     assert response.json()["detail"] == "expired"
+
+
+async def test_invalid_init_data_is_logged_as_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    raw = _sign(_payload(), token="999:wrong")
+    caplog.set_level(logging.INFO, logger="meetup_bot.api")
+
+    await _get(_probe_app(), {INIT_DATA_HEADER: raw})
+
+    (record,) = [r for r in caplog.records if r.message == "initData validation failed"]
+    assert record.levelno == logging.WARNING
+    assert record.reason == "invalid_signature"
+    assert record.path == "/api/_probe"
+
+
+async def test_missing_init_data_is_logged_at_info(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="meetup_bot.api")
+
+    await _get(_probe_app())
+
+    (record,) = [r for r in caplog.records if r.message == "initData validation failed"]
+    assert record.levelno == logging.INFO
+    assert record.reason == "missing"

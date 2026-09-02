@@ -211,8 +211,22 @@
       клик по «Не участвую» снимает отметку — см. техдолг 2.6), пустые
       мероприятия при финализации явки, гонки при одновременном
       редактировании. (TZ §6.2; roadmap §7 Этап 5)
-- [ ] **5.2 Логирование.** Структурированные JSON-логи в stdout, ротация через
+- [x] **5.2 Логирование.** Структурированные JSON-логи в stdout, ротация через
       Docker, обязательные события из §6.2. (TZ §6.2)
+      Закрыто: `meetup_bot.logging_config` — `JsonFormatter` (одна JSON-строка на
+      событие, `extra=` уходит верхним уровнем) + идемпотентная
+      `configure_logging`, вызывается в обеих точках входа (`main`, `run_worker`);
+      `uvicorn` запускается с `log_config=None`, чтобы не перебивал конфиг корня.
+      Порог — `LOG_LEVEL` (`Settings.log_level`, default `INFO`). Ротация — в
+      `docker-compose.yml` (`json-file`, `max-size=10m`, `max-file=5`) на всех
+      сервисах через YAML-якорь. Обязательные события: `TelegramErrorLoggingMiddleware`
+      на `bot.session` логирует все неуспешные вызовы Bot API (в т.ч. `403 bot was
+      blocked` — пометку на `User`/`ProjectMembership` ставит 5.1), не гася
+      исключение; `log_unhandled_update_exception` в `dispatcher.errors` — трейсбек
+      + апдейт помечается обработанным (иначе вебхук отдаёт 500 и Telegram
+      ретраит); `get_init_data` логирует провал валидации `initData`
+      (`missing` — INFO, прочее — WARNING); http-middleware в `app.py` логирует
+      необработанные исключения ручек.
 - [ ] **5.3 Бэкапы.** Ежедневный `pg_dump` по cron, хранение N копий локально +
       выгрузка во внешнее хранилище. (TZ §6.3)
 - [ ] **5.4 Прод-деплой.** Docker Compose (домашний Proxmox + Tailscale
