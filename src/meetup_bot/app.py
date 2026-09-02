@@ -1,10 +1,11 @@
-from collections.abc import AsyncIterator
+import logging
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import Update
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 
 from meetup_bot.api import router as api_router
@@ -36,6 +37,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(lifespan=lifespan)
     # Доступ к конфигу из зависимостей (валидация Web App initData, TZ §3.2).
     app.state.settings = settings
+
+    @app.middleware("http")
+    async def _log_unhandled_exceptions(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        # Необработанные исключения ручек — обязательное к логированию событие
+        # (TZ §6.2). Дальше отдаём Starlette (ответит 500), не подменяя ответ.
+        try:
+            return await call_next(request)
+        except Exception:
+            logging.getLogger("meetup_bot.api").exception(
+                "unhandled request exception",
+                extra={"path": request.url.path, "method": request.method},
+            )
+            raise
+
     app.include_router(api_router)
     _mount_webapp(app, settings)
 

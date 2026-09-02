@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # (TZ §3.4: точность до минуты не нужна, рекомендация 15–30 мин). См.
     # meetup_bot.scheduler.
     worker_poll_interval_minutes: int = 20
+    # Порог корневого логгера (`DEBUG`/`INFO`/`WARNING`/...). Вывод — JSON в
+    # stdout, ротация на стороне Docker (TZ §6.2). См. meetup_bot.logging_config.
+    log_level: str = "INFO"
 
 
 @lru_cache

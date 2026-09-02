@@ -9,6 +9,7 @@ import logging
 from meetup_bot.bot import create_bot
 from meetup_bot.config import get_settings
 from meetup_bot.db.session import create_engine, create_session_factory
+from meetup_bot.logging_config import configure_logging
 from meetup_bot.scheduler import create_scheduler
 
 logger = logging.getLogger("meetup_bot.scheduler")
@@ -38,11 +39,7 @@ async def _serve() -> None:
 
 
 def run_worker() -> None:
-    # Плоские логи в stdout; структурированный JSON и ротация — задача 5.2 (TZ §6.2).
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    configure_logging(level=get_settings().log_level)
     try:
         asyncio.run(_serve())
     except (KeyboardInterrupt, SystemExit):

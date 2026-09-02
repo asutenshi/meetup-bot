@@ -11,6 +11,7 @@ Frontend кладёт подписанную строку `initData` в заго
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -18,6 +19,8 @@ from aiogram.utils.web_app import WebAppInitData, safe_parse_webapp_init_data
 from fastapi import Depends, Header, HTTPException, Request, status
 
 INIT_DATA_HEADER = "X-Telegram-Init-Data"
+
+logger = logging.getLogger("meetup_bot.api")
 
 
 class InitDataError(Exception):
@@ -78,6 +81,14 @@ def get_init_data(
             max_age=timedelta(seconds=settings.webapp_init_data_max_age),
         )
     except InitDataError as exc:
+        # initData не прошла валидацию — обязательное к логированию событие
+        # (TZ §6.2). `missing` (нет заголовка) частый и безобидный — его в INFO.
+        level = logging.INFO if exc.reason == "missing" else logging.WARNING
+        logger.log(
+            level,
+            "initData validation failed",
+            extra={"reason": exc.reason, "path": request.url.path},
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=exc.reason,

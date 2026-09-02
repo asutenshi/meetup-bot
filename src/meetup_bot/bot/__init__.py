@@ -19,12 +19,19 @@ from meetup_bot.bot.handlers import (
     start,
 )
 from meetup_bot.bot.handlers.all_members import AllThrottleMiddleware
-from meetup_bot.bot.middlewares import DbSessionMiddleware
+from meetup_bot.bot.middlewares import (
+    DbSessionMiddleware,
+    TelegramErrorLoggingMiddleware,
+    log_unhandled_update_exception,
+)
 from meetup_bot.config import Settings
 
 
 def create_bot(settings: Settings) -> Bot:
-    return Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    bot = Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    # Логирование неуспешных вызовов Bot API одним местом (TZ §6.2).
+    bot.session.middleware(TelegramErrorLoggingMiddleware())
+    return bot
 
 
 def create_dispatcher(
@@ -36,6 +43,7 @@ def create_dispatcher(
     dispatcher["settings"] = app_settings
     dispatcher.update.outer_middleware(DbSessionMiddleware(session_factory))
     dispatcher.update.outer_middleware(AllThrottleMiddleware())
+    dispatcher.errors.register(log_unhandled_update_exception)
     dispatcher.include_router(chat_member.create_router())
     dispatcher.include_router(chat_migration.create_router())
     dispatcher.include_router(setup_registration.create_router())
