@@ -269,6 +269,12 @@ export function EventScreen({
           <p className="es-line es-line--pre">{event.description}</p>
         </Card>
 
+        {event.details && (
+          <Card icon={ICONS.about} title="Подробности">
+            <p className="es-line es-line--pre">{event.details}</p>
+          </Card>
+        )}
+
         {(event.budget_per_person !== null || seats !== null) && (
           <Card icon={ICONS.money} title="Деньги и места">
             {event.budget_per_person !== null && (

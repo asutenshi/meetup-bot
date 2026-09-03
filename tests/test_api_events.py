@@ -32,6 +32,7 @@ from meetup_bot.db.models import (
     ProjectTopicSetting,
     User,
 )
+from meetup_bot.services.event_announcement import configure_announcements
 from tests.conftest import BOT_TOKEN, FakeBotApi
 
 _CREATOR_TG_ID = 111
@@ -241,6 +242,86 @@ async def test_create_event_persists_and_publishes_announcement(
     assert sent.reply_markup is not None
 
 
+async def test_create_event_stores_details_and_adds_details_button(
+    session_factory: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+) -> None:
+    await _seed(session_factory)
+    app = _app(session_factory, bot)
+    configure_announcements(bot, webapp_short_name="app")
+
+    async with await _client(app) as client:
+        response = await client.post(
+            "/api/events",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_CREATOR_TG_ID)},
+            json=_valid_body(details="Программа: сбор 10:00, старт 11:00"),
+        )
+
+    assert response.status_code == 201
+    event_id = response.json()["event_id"]
+    async with session_factory() as session:
+        event = await session.get(Event, event_id)
+        assert event is not None
+        assert event.details == "Программа: сбор 10:00, старт 11:00"
+
+    sent = fake_bot_api.sent_messages[-1]
+    # подробный текст в анонс не идёт — ни целиком, ни пометкой
+    assert "старт 11:00" not in (sent.text or "")
+    assert "Подробности" not in (sent.text or "")
+    # …только кнопка «Подробности» отдельной строкой под RSVP-кнопками
+    rows = sent.reply_markup.inline_keyboard
+    assert rows[1][0].text == "📄 Подробности мероприятия"
+    assert rows[1][0].url == f"https://t.me/test_bot/app?startapp=alpha_{event_id}"
+
+
+async def test_create_event_blank_details_stored_as_null(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot, fake_bot_api: FakeBotApi
+) -> None:
+    await _seed(session_factory)
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.post(
+            "/api/events",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_CREATOR_TG_ID)},
+            json=_valid_body(details="   "),
+        )
+
+    assert response.status_code == 201
+    async with session_factory() as session:
+        event = await session.get(Event, response.json()["event_id"])
+        assert event is not None
+        assert event.details is None
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("description", "д" * 601), ("details", "п" * 4001)],
+)
+async def test_create_event_rejects_overlong_text(
+    session_factory: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    field: str,
+    value: str,
+) -> None:
+    await _seed(session_factory)
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.post(
+            "/api/events",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_CREATOR_TG_ID)},
+            json=_valid_body(**{field: value}),
+        )
+
+    assert response.status_code == 422
+
+
 async def test_create_event_without_co_organizers(
     session_factory: async_sessionmaker[AsyncSession], bot: Bot, fake_bot_api: FakeBotApi
 ) -> None:
@@ -365,11 +446,13 @@ async def _make_event(
     created_by: int,
     co_organizer_ids: list[int] | None = None,
     going_user_ids: list[int] | None = None,
+    details: str | None = None,
 ) -> int:
     async with session_factory() as session:
         event = Event(
             project_id=project_id,
             description="Старое описание",
+            details=details,
             starts_at=datetime.datetime(2026, 10, 1, 18, 0, tzinfo=datetime.UTC),
             location="Старое место",
             created_by=created_by,
@@ -428,6 +511,46 @@ async def test_edit_context_returns_prefill(
     assert data["event"]["location"] == "Старое место"
     assert data["event"]["co_organizer_user_ids"] == [ids["creator_id"]]
     assert {m["user_id"] for m in data["members"]} == {ids["creator_id"], ids["other_id"]}
+
+
+async def test_edit_context_and_update_roundtrip_details(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot, fake_bot_api: FakeBotApi
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory,
+        project_id=ids["project_id"],
+        created_by=ids["creator_id"],
+        details="Старые подробности",
+        going_user_ids=[ids["other_id"]],
+    )
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        context = await client.get(
+            f"/api/events/{event_id}",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_CREATOR_TG_ID)},
+        )
+        assert context.json()["event"]["details"] == "Старые подробности"
+
+        updated = await client.put(
+            f"/api/events/{event_id}",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_CREATOR_TG_ID)},
+            json=_edit_body(details="Новые подробности"),
+        )
+        assert updated.status_code == 200
+
+    async with session_factory() as session:
+        event = await session.get(Event, event_id)
+        assert event is not None
+        assert event.details == "Новые подробности"
+
+    # подтвердившему уходит пометка про подробности, без самого текста
+    dm = fake_bot_api.sent_messages[-1]
+    assert "📄 Обновили подробности" in (dm.text or "")
+    assert "Новые подробности" not in (dm.text or "")
 
 
 async def test_edit_context_403_for_non_organizer(
@@ -649,6 +772,7 @@ async def test_event_view_returns_fields_summary_and_can_manage(
         project_id=ids["project_id"],
         created_by=ids["creator_id"],
         going_user_ids=[ids["other_id"]],
+        details="Подробная программа мероприятия",
     )
     app = _app(session_factory, bot)
 
@@ -662,6 +786,7 @@ async def test_event_view_returns_fields_summary_and_can_manage(
     assert response.status_code == 200
     data = response.json()
     assert data["location"] == "Старое место"
+    assert data["details"] == "Подробная программа мероприятия"
     assert data["status"] == "planned"
     assert data["is_finalized"] is False
     assert data["rsvp"] == {"going_count": 1, "not_going_count": 0, "my_rsvp": None}

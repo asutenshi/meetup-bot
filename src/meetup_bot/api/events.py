@@ -59,7 +59,11 @@ class CreateEventRequest(BaseModel):
     starts_at: datetime.datetime
     ends_at: datetime.datetime | None = None
     location: str = Field(min_length=1, max_length=255)
-    description: str = Field(min_length=1, max_length=4000)
+    # `description` — краткая афиша, идёт в анонс группы: лимит короткий, чтобы
+    # само описание не переполнило сообщение Telegram (TZ §2.6, §4.3, §6.4).
+    # Развёрнутый текст — в `details` (только экран мероприятия в Web App).
+    description: str = Field(min_length=1, max_length=600)
+    details: str | None = Field(default=None, max_length=4000)
     budget_per_person: decimal.Decimal | None = Field(default=None, ge=0, decimal_places=2)
     seats_limit: int | None = Field(default=None, ge=1)
     co_organizer_user_ids: list[int] = Field(default_factory=list)
@@ -71,6 +75,14 @@ class CreateEventRequest(BaseModel):
         if not stripped:
             raise ValueError("field must not be blank")
         return stripped
+
+    @field_validator("details")
+    @classmethod
+    def _strip_optional(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
     @model_validator(mode="after")
     def _ends_after_starts(self) -> CreateEventRequest:
@@ -96,6 +108,7 @@ class EventFormData(BaseModel):
     ends_at: datetime.datetime | None
     location: str
     description: str
+    details: str | None
     budget_per_person: decimal.Decimal | None
     seats_limit: int | None
     co_organizer_user_ids: list[int]
@@ -174,6 +187,7 @@ async def create_event(
     event = Event(
         project_id=ctx.project.id,
         description=payload.description,
+        details=payload.details,
         starts_at=payload.starts_at,
         ends_at=payload.ends_at,
         location=payload.location,
@@ -196,6 +210,7 @@ async def create_event(
         session,
         event,
         chat_id=ctx.project.tg_chat_id,
+        invite_payload=ctx.project.invite_payload,
         co_organizers=co_organizers,
         going=[],
         not_going=[],
@@ -260,6 +275,7 @@ async def event_edit_context(
             ends_at=event.ends_at,
             location=event.location,
             description=event.description,
+            details=event.details,
             budget_per_person=event.budget_per_person,
             seats_limit=event.seats_limit,
             co_organizer_user_ids=co_ids,
@@ -292,6 +308,7 @@ async def update_event(
     event.ends_at = payload.ends_at
     event.location = payload.location
     event.description = payload.description
+    event.details = payload.details
     event.budget_per_person = payload.budget_per_person
     event.seats_limit = payload.seats_limit
 
@@ -385,6 +402,7 @@ class EventView(BaseModel):
     ends_at: datetime.datetime | None
     location: str
     description: str
+    details: str | None
     budget_per_person: decimal.Decimal | None
     seats_limit: int | None
     status: str
@@ -472,6 +490,7 @@ async def event_view(
         ends_at=event.ends_at,
         location=event.location,
         description=event.description,
+        details=event.details,
         budget_per_person=event.budget_per_person,
         seats_limit=event.seats_limit,
         status=event.status.value,

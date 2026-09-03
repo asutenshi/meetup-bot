@@ -9,6 +9,12 @@ class Settings(BaseSettings):
     bot_token: str
     database_url: str
     public_base_url: str | None = None
+    # Короткое имя Telegram Mini App, зарегистрированное в BotFather
+    # (`/newapp` → short name). Нужно для ссылок `t.me/<bot>/<short_name>?startapp=…`
+    # — по такой кнопке под групповым анонсом открывается экран мероприятия в
+    # Web App (TZ §3.8, §4.3). Без него кнопка «Подробности» под анонсом не
+    # добавляется.
+    webapp_short_name: str | None = None
     host: str = "0.0.0.0"
     port: int = 8080
     # Каталог со сборкой Web App (Vite → webapp/dist). Раздаётся под /app,

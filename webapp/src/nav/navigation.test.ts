@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseView, viewUrl } from './navigation';
+import { parseInitialStack, parseStartParam, parseView, viewUrl } from './navigation';
 
 describe('parseView', () => {
   it('без параметров → хаб', () => {
@@ -62,6 +62,52 @@ describe('parseView', () => {
       project: 'alpha',
       eventId: null,
     });
+  });
+});
+
+describe('parseStartParam', () => {
+  it('<invite_payload>_<eventId> → экран мероприятия', () => {
+    expect(parseStartParam('xY_9-z_42')).toEqual({
+      name: 'event',
+      project: 'xY_9-z',
+      eventId: 42,
+    });
+  });
+
+  it('режет по последнему подчёркиванию', () => {
+    expect(parseStartParam('a_b_c_7')).toEqual({
+      name: 'event',
+      project: 'a_b_c',
+      eventId: 7,
+    });
+  });
+
+  it.each(['', undefined, 'noseparator', 'abc_', '_42', 'abc_x', 'abc_0'])(
+    'битый формат %j → null',
+    (value) => {
+      expect(parseStartParam(value as string | undefined)).toBeNull();
+    },
+  );
+});
+
+describe('parseInitialStack', () => {
+  it('startapp без ?project= → [хаб, экран мероприятия]', () => {
+    expect(parseInitialStack('', 'alpha_42')).toEqual([
+      { name: 'hub' },
+      { name: 'event', project: 'alpha', eventId: 42 },
+    ]);
+  });
+
+  it('есть ?project= в URL → startapp игнорируется', () => {
+    expect(parseInitialStack('?project=alpha', 'beta_9')).toEqual([
+      { name: 'form', project: 'alpha', eventId: null },
+    ]);
+  });
+
+  it('без startapp → один экран из query-строки', () => {
+    expect(parseInitialStack('?project=alpha&event=7', undefined)).toEqual([
+      { name: 'form', project: 'alpha', eventId: 7 },
+    ]);
   });
 });
 

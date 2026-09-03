@@ -30,8 +30,16 @@ type LoadState =
   | { kind: 'load-error'; detail: string };
 
 type Errors = Partial<
-  Record<'starts_at' | 'ends_at' | 'location' | 'description' | 'budget' | 'seats', string>
+  Record<
+    'starts_at' | 'ends_at' | 'location' | 'description' | 'details' | 'budget' | 'seats',
+    string
+  >
 >;
+
+/** Лимиты — те же, что на бэкенде (`api/events.py`): краткая афиша идёт в
+ *  анонс, поэтому короткая; подробности — только Web App. */
+const DESCRIPTION_MAX = 600;
+const DETAILS_MAX = 4000;
 
 /** «1250,5» → «1250.5»: запятую как десятичный разделитель приводим к точке. */
 function normalizeNumber(value: string): string {
@@ -56,6 +64,7 @@ export function EventForm({
   const [endTime, setEndTime] = useState('');
   const [location, setLocation] = useState('');
   const [description, setDescription] = useState('');
+  const [details, setDetails] = useState('');
   const [budget, setBudget] = useState('');
   const [seats, setSeats] = useState('');
   const [coOrganizers, setCoOrganizers] = useState<Set<number>>(new Set());
@@ -107,6 +116,7 @@ export function EventForm({
           }
           setLocation(context.event.location);
           setDescription(context.event.description);
+          setDetails(context.event.details ?? '');
           setBudget(context.event.budget_per_person ?? '');
           setSeats(
             context.event.seats_limit !== null ? String(context.event.seats_limit) : '',
@@ -210,7 +220,14 @@ export function EventForm({
       next.ends_at = 'Окончание должно быть позже начала';
     }
     if (!location.trim()) next.location = 'Укажите место';
-    if (!description.trim()) next.description = 'Добавьте описание';
+    if (!description.trim()) {
+      next.description = 'Добавьте описание';
+    } else if (description.trim().length > DESCRIPTION_MAX) {
+      next.description = `Слишком длинно для анонса — не больше ${DESCRIPTION_MAX} символов`;
+    }
+    if (details.trim().length > DETAILS_MAX) {
+      next.details = `Не больше ${DETAILS_MAX} символов`;
+    }
     const budgetValue = Number(normalizeNumber(budget));
     if (budget.trim() && !(Number.isFinite(budgetValue) && budgetValue >= 0)) {
       next.budget = 'Число ≥ 0';
@@ -232,6 +249,7 @@ export function EventForm({
       ends_at: endDate && endTime ? toIso(endsAt) : null,
       location: location.trim(),
       description: description.trim(),
+      details: details.trim() ? details.trim() : null,
       budget_per_person: budget.trim() ? normalizeNumber(budget) : null,
       seats_limit: seats.trim() ? Number(seats.trim()) : null,
       co_organizer_user_ids: [...coOrganizers],
@@ -345,14 +363,30 @@ export function EventForm({
         </Card>
 
         <Card icon={ICONS.about} title="О чём">
-          <Field label="Описание" htmlFor="ef-description" error={errors.description}>
+          <Field label="Краткое описание" htmlFor="ef-description" error={errors.description}>
             <textarea
               id="ef-description"
               className={`ef-input${errors.description ? ' ef-input--invalid' : ''}`}
               value={description}
+              maxLength={DESCRIPTION_MAX + 200}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Что за встреча, что взять с собой, детали"
+              placeholder="Коротко: что за встреча, для кого"
             />
+            <p className="ef-hint">Идёт в анонс группы — держите афишу короткой.</p>
+          </Field>
+          <Field label="Подробности" htmlFor="ef-details" optional error={errors.details}>
+            <textarea
+              id="ef-details"
+              className={`ef-input${errors.details ? ' ef-input--invalid' : ''}`}
+              value={details}
+              maxLength={DETAILS_MAX + 200}
+              onChange={(e) => setDetails(e.target.value)}
+              placeholder="Программа, что взять с собой, как добраться"
+            />
+            <p className="ef-hint">
+              В анонс не идёт — видно на экране мероприятия в приложении. Под анонсом
+              появится кнопка «Подробности мероприятия».
+            </p>
           </Field>
         </Card>
 

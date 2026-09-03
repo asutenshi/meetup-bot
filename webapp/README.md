@@ -68,6 +68,14 @@ tsc + vite build).
   заголовок `X-Telegram-Init-Data` и параметр `project` (= `invite_payload`) в
   query-string; бэкенд валидирует подпись и сверяет проект с `ProjectMembership`
   (TZ §3.2).
+- **Точки входа.** Контекст экрана обычно приходит в query-строке URL кнопки
+  (`?project=&event=` / `&attendance=`, см. `src/nav/navigation.ts`). Отдельный
+  случай — кнопка «📄 Подробности мероприятия» под групповым анонсом: это
+  `startapp`-ссылка `t.me/<bot>/<app>?startapp=<invite_payload>_<eventId>`
+  (нужно короткое имя app в BotFather — бэкендный `WEBAPP_SHORT_NAME`), контекст
+  приходит в `tgWebAppStartParam` launch-параметров. `getStartParam`
+  (`src/telegram/init.ts`) + `parseInitialStack` открывают экран мероприятия
+  поверх хаба, чтобы «назад» вёл на хаб.
 
 ## SDK: `@tma.js/sdk`
 
