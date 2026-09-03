@@ -10,6 +10,7 @@ export type EventFormData = components['schemas']['EventFormData'];
 export type UpdateEventRequest = components['schemas']['UpdateEventRequest'];
 export type UpdateEventResponse = components['schemas']['UpdateEventResponse'];
 export type EventView = components['schemas']['EventView'];
+export type EventViewPerson = components['schemas']['EventViewPerson'];
 export type EventRsvpSummary = components['schemas']['EventRsvpSummary'];
 export type RsvpStatus = components['schemas']['RsvpRequest']['status'];
 export type CancelEventResponse = components['schemas']['CancelEventResponse'];

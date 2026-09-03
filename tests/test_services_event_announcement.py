@@ -1,7 +1,12 @@
 import datetime
 import decimal
+import re
+from html import unescape
 
+import pytest
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.methods import EditMessageText
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -155,6 +160,80 @@ def test_announcement_hides_not_going_block_when_empty() -> None:
     )
 
     assert "Не участвует" not in text
+
+
+def _visible_len(html_text: str) -> int:
+    plain = unescape(re.sub(r"<[^>]+>", "", html_text))
+    return len(plain.encode("utf-16-le")) // 2
+
+
+def test_announcement_full_view_when_lists_fit() -> None:
+    going = [_user(i, f"Гость {i}") for i in range(1, 6)]
+    not_going = [_user(100 + i, f"Отказ {i}") for i in range(1, 4)]
+
+    text = build_announcement_text(
+        _event(), co_organizers=[], going=going, not_going=not_going,
+        timezone="Europe/Moscow",
+    )
+
+    assert "5. <a href=\"tg://user?id=5\">Гость 5</a>" in text
+    assert "❌ Не участвует: 3" in text
+    assert "3. <a href=\"tg://user?id=103\">Отказ 3</a>" in text
+    assert "…и ещё" not in text
+
+
+def test_announcement_collapses_not_going_to_count_on_overflow() -> None:
+    going = [_user(i, f"Участник {i}") for i in range(1, 151)]
+    not_going = [_user(1000 + i, f"Отказник {i}") for i in range(1, 121)]
+
+    text = build_announcement_text(
+        _event(), co_organizers=[], going=going, not_going=not_going,
+        timezone="Europe/Moscow",
+    )
+
+    # Ступень 2: «участвует» — целиком, «не участвует» — только числом.
+    assert "150. <a href=\"tg://user?id=150\">Участник 150</a>" in text
+    assert "❌ Не участвует: 120" in text
+    assert "Отказник 1" not in text
+    assert "…и ещё" not in text
+    assert _visible_len(text) <= 3800
+
+
+def test_announcement_truncates_going_with_tail_on_hard_overflow() -> None:
+    going = [_user(i, f"Участник {i}") for i in range(1, 301)]
+    not_going = [_user(5000 + i, f"Отказник {i}") for i in range(1, 6)]
+
+    text = build_announcement_text(
+        _event(), co_organizers=[], going=going, not_going=not_going,
+        timezone="Europe/Moscow",
+    )
+
+    # Ступень 3: «участвует» обрезан, есть хвост-пометка; «не участвует» — числом.
+    assert "1. <a href=\"tg://user?id=1\">Участник 1</a>" in text
+    assert "300. <a href=\"tg://user?id=300\">Участник 300</a>" not in text
+    assert "полный список в приложении" in text
+    assert "❌ Не участвует: 5" in text
+    assert _visible_len(text) <= 3800
+
+    shown = sum(1 for line in text.splitlines() if line[:1].isdigit())
+    tail = next(line for line in text.splitlines() if line.startswith("…и ещё"))
+    assert tail == f"…и ещё {300 - shown} — полный список в приложении"
+
+
+def test_announcement_compact_shows_only_counts() -> None:
+    going = [_user(i, f"Гость {i}") for i in range(1, 21)]
+    not_going = [_user(200 + i, f"Отказ {i}") for i in range(1, 6)]
+
+    text = build_announcement_text(
+        _event(), co_organizers=[], going=going, not_going=not_going,
+        timezone="Europe/Moscow", compact=True,
+    )
+
+    assert "✅ Участвует: 20" in text
+    assert "…и ещё 20 — полный список в приложении" in text
+    assert "❌ Не участвует: 5" in text
+    assert "Гость 1" not in text
+    assert "Отказ 1" not in text
 
 
 def test_announcement_marks_goal_reached_when_going_meets_seats_limit() -> None:
@@ -537,6 +616,39 @@ async def test_refresh_event_announcement_renders_not_going_block(
     assert "❌ Не участвует: 1" in text
     assert text.index("✅ Участвует") < text.index("@anya") < text.index("❌ Не участвует")
     assert text.index("❌ Не участвует") < text.index("@misha")
+
+
+async def test_refresh_event_announcement_falls_back_on_message_too_long(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ids = await _seed_event(session_factory)
+    real_edit = bot.edit_message_text
+    calls: list[str] = []
+
+    async def flaky_edit(**kwargs: object):  # type: ignore[no-untyped-def]
+        calls.append(str(kwargs["text"]))
+        if len(calls) == 1:
+            raise TelegramBadRequest(
+                method=EditMessageText(chat_id=1, message_id=1, text="x"),
+                message="Bad Request: message is too long",
+            )
+        return await real_edit(**kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(bot, "edit_message_text", flaky_edit)
+
+    async with session_factory() as session:
+        event = await session.get(Event, ids["event_id"])
+        assert event is not None
+        assert await refresh_event_announcement(bot, session, event) is True
+
+    # Первый рендер не влез → страховка перерисовала в компактном виде.
+    assert len(calls) == 2
+    assert "1. @anya" not in calls[1]
+    assert "✅ Участвует: 2" in calls[1]
+    assert "…и ещё 2 — полный список в приложении" in calls[1]
 
 
 async def test_refresh_event_announcement_adds_details_button_when_configured(

@@ -446,6 +446,7 @@ async def _make_event(
     created_by: int,
     co_organizer_ids: list[int] | None = None,
     going_user_ids: list[int] | None = None,
+    not_going_user_ids: list[int] | None = None,
     details: str | None = None,
 ) -> int:
     async with session_factory() as session:
@@ -462,15 +463,19 @@ async def _make_event(
         await session.flush()
         for uid in co_organizer_ids or []:
             session.add(EventCoOrganizer(event_id=event.id, user_id=uid))
-        for uid in going_user_ids or []:
-            session.add(
-                EventRSVP(
-                    event_id=event.id,
-                    user_id=uid,
-                    status=RSVPStatus.GOING,
-                    updated_by=uid,
+        for status, uids in (
+            (RSVPStatus.GOING, going_user_ids),
+            (RSVPStatus.NOT_GOING, not_going_user_ids),
+        ):
+            for uid in uids or []:
+                session.add(
+                    EventRSVP(
+                        event_id=event.id,
+                        user_id=uid,
+                        status=status,
+                        updated_by=uid,
+                    )
                 )
-            )
         await session.commit()
         return event.id
 
@@ -790,8 +795,41 @@ async def test_event_view_returns_fields_summary_and_can_manage(
     assert data["status"] == "planned"
     assert data["is_finalized"] is False
     assert data["rsvp"] == {"going_count": 1, "not_going_count": 0, "my_rsvp": None}
+    assert data["going"] == [{"user_id": ids["other_id"], "name": "Миша Родин"}]
+    assert data["not_going"] == []
     assert data["can_manage"] is True
     assert data["announcement_url"].endswith("/777")
+
+
+async def test_event_view_lists_going_and_not_going_with_own_mark(
+    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+) -> None:
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory,
+        project_id=ids["project_id"],
+        created_by=ids["creator_id"],
+        going_user_ids=[ids["other_id"]],
+        not_going_user_ids=[ids["creator_id"]],
+    )
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.get(
+            f"/api/events/{event_id}/view",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_CREATOR_TG_ID)},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert [p["name"] for p in data["going"]] == ["Миша Родин"]
+    assert [p["name"] for p in data["not_going"]] == ["Аня"]
+    assert data["rsvp"] == {
+        "going_count": 1,
+        "not_going_count": 1,
+        "my_rsvp": "not_going",
+    }
 
 
 async def test_event_view_visible_to_plain_member_without_manage(
