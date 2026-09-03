@@ -80,6 +80,17 @@
   font-weight: 600;
 }
 
+.es-people-group {
+  margin-top: 14px;
+}
+
+.es-people-group__title {
+  margin: 0 0 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tg-hint);
+}
+
 .es-counts__going {
   color: var(--accent);
 }

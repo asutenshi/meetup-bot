@@ -29,6 +29,7 @@ from meetup_bot.services.event_announcement import (
     announcement_deep_link,
     build_event_update_keyboard,
     build_event_update_notification,
+    load_announcement_participants,
     publish_event_announcement,
     refresh_event_announcement,
 )
@@ -379,7 +380,7 @@ async def cancel_event_endpoint(
     return CancelEventResponse(announcement_ok=announcement_ok, notified=notified)
 
 
-class EventViewCoOrganizer(BaseModel):
+class EventViewPerson(BaseModel):
     user_id: int
     name: str
 
@@ -392,9 +393,13 @@ class EventRsvpSummary(BaseModel):
 
 class EventView(BaseModel):
     """Мероприятие для экрана Web App (задача 2.9.2): поля + со-организаторы +
-    сводка RSVP + личная отметка + признак прав на управление + ссылка на анонс.
-    Доступен любому активному участнику проекта (в отличие от `GET /api/events/
-    {id}`, требующего прав на управление)."""
+    списки RSVP + сводка + личная отметка + признак прав на управление + ссылка
+    на анонс. Доступен любому активному участнику проекта (в отличие от
+    `GET /api/events/{id}`, требующего прав на управление).
+
+    Полные списки `going` / `not_going` здесь — «дом» для кнопки «полный список»
+    из анонса: при переполнении лимита длины анонс сворачивает никнеймы в числа
+    (TZ §4.3), а весь список смотрят на этом экране."""
 
     id: int
     title: str | None
@@ -407,7 +412,10 @@ class EventView(BaseModel):
     seats_limit: int | None
     status: str
     is_finalized: bool
-    co_organizers: list[EventViewCoOrganizer]
+    co_organizers: list[EventViewPerson]
+    # Активные участники проекта, в порядке ответа (кто раньше нажал кнопку).
+    going: list[EventViewPerson]
+    not_going: list[EventViewPerson]
     rsvp: EventRsvpSummary
     announcement_url: str | None
     # Может ли текущий пользователь редактировать/отменять мероприятие прямо
@@ -472,16 +480,19 @@ async def event_view(
 ) -> EventView:
     event = await _load_project_event(session, ctx, event_id)
 
-    co_rows = await session.execute(
-        select(User)
-        .join(EventCoOrganizer, EventCoOrganizer.user_id == User.id)
-        .where(EventCoOrganizer.event_id == event.id)
-        .order_by(EventCoOrganizer.id)
+    co_users, going_users, not_going_users = await load_announcement_participants(
+        session, event
     )
-    co_organizers = [
-        EventViewCoOrganizer(user_id=user.id, name=_display_name(user))
-        for user in co_rows.scalars()
-    ]
+
+    def _people(users: list[User]) -> list[EventViewPerson]:
+        return [EventViewPerson(user_id=u.id, name=_display_name(u)) for u in users]
+
+    if any(u.id == ctx.user.id for u in going_users):
+        my_rsvp: Literal["going", "not_going"] | None = "going"
+    elif any(u.id == ctx.user.id for u in not_going_users):
+        my_rsvp = "not_going"
+    else:
+        my_rsvp = None
 
     return EventView(
         id=event.id,
@@ -495,8 +506,14 @@ async def event_view(
         seats_limit=event.seats_limit,
         status=event.status.value,
         is_finalized=event.attendance_finalized_at is not None,
-        co_organizers=co_organizers,
-        rsvp=await _rsvp_summary(session, event_id=event.id, user_id=ctx.user.id),
+        co_organizers=_people(co_users),
+        going=_people(going_users),
+        not_going=_people(not_going_users),
+        rsvp=EventRsvpSummary(
+            going_count=len(going_users),
+            not_going_count=len(not_going_users),
+            my_rsvp=my_rsvp,
+        ),
         announcement_url=announcement_deep_link(
             ctx.project.tg_chat_id, event.announcement_message_id
         ),

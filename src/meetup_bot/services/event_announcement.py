@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import datetime
 import decimal
-from html import escape
+import re
+from html import escape, unescape
 from weakref import WeakKeyDictionary
 from zoneinfo import ZoneInfo
 
@@ -202,6 +203,39 @@ def build_event_update_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+# Лимит текста сообщения Telegram — 4096 UTF-16 code units. Порог для лесенки
+# деградации берём с запасом: HTML-разметка text-mention/`<b>` в лимит не входит
+# (считается видимый текст), но эмодзи занимают по 2 code unit — держим буфер.
+_TEXT_LIMIT = 4096
+_TEXT_THRESHOLD = _TEXT_LIMIT - 296
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+_OVERFLOW_TAIL = "…и ещё {count} — полный список в приложении"
+
+
+def _visible_length(html_text: str) -> int:
+    """Длина видимого текста сообщения в UTF-16 code units — как её считает
+    Telegram для лимита 4096 (HTML-разметка text-mention/`<b>` в счёт не идёт)."""
+    plain = unescape(_TAG_RE.sub("", html_text))
+    return len(plain.encode("utf-16-le")) // 2
+
+
+def _within_limit(html_text: str) -> bool:
+    return _visible_length(html_text) <= _TEXT_THRESHOLD
+
+
+def _going_counter_line(event: Event, going_count: int) -> str:
+    """«✅ Участвует: N» / «✅ Участвует: N/L» c пометкой «цель набрана», если
+    подтвердивших не меньше мягкого лимита мест (`seats_limit`)."""
+    if event.seats_limit is None:
+        return f"✅ Участвует: {going_count}"
+    line = f"✅ Участвует: {going_count}/{event.seats_limit}"
+    if going_count >= event.seats_limit:
+        line += " — цель набрана 🎯"
+    return line
+
+
 def build_announcement_text(
     event: Event,
     *,
@@ -209,6 +243,7 @@ def build_announcement_text(
     going: list[User],
     not_going: list[User],
     timezone: str,
+    compact: bool = False,
 ) -> str:
     """HTML-текст анонса: все поля мероприятия + два списка RSVP — «участвует» и
     «не участвует» — с никнеймами (TZ §4.3 «RSVP»). Третья группа (активные
@@ -217,6 +252,20 @@ def build_announcement_text(
     `seats_limit` — мягкий ориентир, а не потолок: при `len(going) >= seats_limit`
     к счётчику добавляется пометка «цель набрана», но RSVP не блокируется
     (хендлер лимит не проверяет).
+
+    При большом числе откликов оба списка никнеймов могут не влезть в лимит
+    сообщения Telegram (`_TEXT_LIMIT`). Тогда текст деградирует по лесенке
+    (TZ §4.3 «Поведение анонса при переполнении лимита длины»):
+
+    1. всё влезает — полный вид;
+    2. список «не участвует» сворачивается в число («❌ Не участвует: K»);
+    3. список «участвует» обрезается до первых N, дальше — строка
+       «…и ещё M — полный список в приложении».
+
+    Счётчики и RSVP-кнопки (их добавляет `build_rsvp_keyboard`) остаются на всех
+    ступенях. `compact=True` — сразу минимальный вид (оба списка числом); его
+    запрашивает `refresh_event_announcement`, если `editMessageText` всё же
+    вернул `MESSAGE_TOO_LONG`.
 
     Для отменённого мероприятия (`status = cancelled`, задача 2.8) оба списка
     RSVP опускаются, а вместо них снизу — выделенная пометка «Мероприятие
@@ -251,28 +300,50 @@ def build_announcement_text(
         lines.append("")
         lines.append("Организуют: " + ", ".join(_mention(u) for u in co_organizers))
 
+    head = "\n".join(lines)
+
     if cancelled:
-        lines.append("")
-        lines.append("🚫 <b>Мероприятие отменено</b>")
-    else:
-        lines.append("")
-        if event.seats_limit is not None:
-            counter = f"✅ Участвует: {len(going)}/{event.seats_limit}"
-            if len(going) >= event.seats_limit:
-                counter += " — цель набрана 🎯"
-            lines.append(counter)
-        else:
-            lines.append(f"✅ Участвует: {len(going)}")
-        lines.extend(f"{i}. {_mention(u)}" for i, u in enumerate(going, start=1))
+        return f"{head}\n\n🚫 <b>Мероприятие отменено</b>"
 
+    counter = _going_counter_line(event, len(going))
+
+    def render(going_shown: int, not_going_names: bool) -> str:
+        block: list[str] = [counter]
+        block.extend(
+            f"{i}. {_mention(u)}" for i, u in enumerate(going[:going_shown], start=1)
+        )
+        if going_shown < len(going):
+            block.append(_OVERFLOW_TAIL.format(count=len(going) - going_shown))
         if not_going:
-            lines.append("")
-            lines.append(f"❌ Не участвует: {len(not_going)}")
-            lines.extend(
-                f"{i}. {_mention(u)}" for i, u in enumerate(not_going, start=1)
-            )
+            block.append("")
+            block.append(f"❌ Не участвует: {len(not_going)}")
+            if not_going_names:
+                block.extend(
+                    f"{i}. {_mention(u)}"
+                    for i, u in enumerate(not_going, start=1)
+                )
+        return f"{head}\n\n" + "\n".join(block)
 
-    return "\n".join(lines)
+    if compact:
+        return render(0, not_going_names=False)
+
+    full = render(len(going), not_going_names=True)
+    if _within_limit(full):
+        return full
+
+    collapsed = render(len(going), not_going_names=False)
+    if _within_limit(collapsed):
+        return collapsed
+
+    # Ступень 3: бинарным поиском — сколько никнеймов «участвует» ещё влезает.
+    lo, hi = 0, len(going)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if _within_limit(render(mid, not_going_names=False)):
+            lo = mid
+        else:
+            hi = mid - 1
+    return render(lo, not_going_names=False)
 
 
 class EventSnapshot:
@@ -446,11 +517,12 @@ async def publish_event_announcement(
     return message.message_id
 
 
-async def _announcement_participants(
+async def load_announcement_participants(
     session: AsyncSession, event: Event
 ) -> tuple[list[User], list[User], list[User]]:
-    """`(co_organizers, going, not_going)` для перерисовки анонса: со-организаторы
-    в порядке добавления, ответившие — в порядке ответа (кто раньше нажал кнопку).
+    """`(co_organizers, going, not_going)` для перерисовки анонса и для экрана
+    мероприятия в Web App (`GET /api/events/{id}/view`): со-организаторы в порядке
+    добавления, ответившие — в порядке ответа (кто раньше нажал кнопку).
 
     Во всех трёх списках — только активные участники проекта: удалённый через
     `/remove_member` человек пропадает из анонса при ближайшей перерисовке
@@ -541,7 +613,9 @@ async def refresh_event_announcement(
     settings = await session.get(ProjectSettings, event.project_id)
     timezone = settings.timezone if settings is not None else DEFAULT_TIMEZONE
 
-    co_organizers, going, not_going = await _announcement_participants(session, event)
+    co_organizers, going, not_going = await load_announcement_participants(
+        session, event
+    )
     text = build_announcement_text(
         event,
         co_organizers=co_organizers,
@@ -568,6 +642,29 @@ async def refresh_event_announcement(
             reply_markup=keyboard,
         )
     except TelegramBadRequest as exc:
-        if "not modified" not in str(exc).lower():
+        lowered = str(exc).lower()
+        if "not modified" in lowered:
+            return True
+        if "too long" not in lowered:
             raise
+        # Страховка: порог лесенки не угадал и текст всё же не влез — перерисовываем
+        # в минимальном виде (оба списка числом, TZ §4.3 «Поведение анонса при
+        # переполнении лимита длины», ступень «только счётчики»).
+        try:
+            await bot.edit_message_text(
+                text=build_announcement_text(
+                    event,
+                    co_organizers=co_organizers,
+                    going=going,
+                    not_going=not_going,
+                    timezone=timezone,
+                    compact=True,
+                ),
+                chat_id=project.tg_chat_id,
+                message_id=event.announcement_message_id,
+                reply_markup=keyboard,
+            )
+        except TelegramBadRequest as fallback_exc:
+            if "not modified" not in str(fallback_exc).lower():
+                raise
     return True

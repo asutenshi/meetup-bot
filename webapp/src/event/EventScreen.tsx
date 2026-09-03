@@ -14,6 +14,7 @@ import { formatWhen } from '../hub/format';
 import type { View } from '../nav/navigation';
 import { closeMiniApp, openTelegramLinkSafe } from '../telegram/init';
 import { Card } from '../ui/Card';
+import { PeopleList } from '../ui/PeopleList';
 import { ScreenBar, type ScreenBarAction } from '../ui/ScreenBar';
 import { ICONS } from '../event-form/components';
 import './event.css';
@@ -82,7 +83,12 @@ export function EventScreen({
     setRsvpBusy(true);
     setRsvpError(null);
     try {
-      setRsvp(await submitRsvp(eventId, status));
+      await submitRsvp(eventId, status);
+      // Перечитываем экран целиком — после отметки меняется не только счётчик,
+      // но и списки «идут» / «не идут».
+      const fresh = await fetchEventView(eventId);
+      setLoad({ kind: 'ready', event: fresh });
+      setRsvp(fresh.rsvp);
     } catch (error: unknown) {
       if (error instanceof ApiError && error.status === 401) {
         setRsvpError('Сессия устарела — переоткройте Mini App.');
@@ -338,6 +344,19 @@ export function EventScreen({
           )}
 
           {rsvpError && <p className="ui-error">{rsvpError}</p>}
+
+          {event.going.length > 0 && (
+            <div className="es-people-group">
+              <p className="es-people-group__title">Идут</p>
+              <PeopleList people={event.going} />
+            </div>
+          )}
+          {event.not_going.length > 0 && (
+            <div className="es-people-group">
+              <p className="es-people-group__title">Не идут</p>
+              <PeopleList people={event.not_going} />
+            </div>
+          )}
         </Card>
 
         {event.announcement_url && (

@@ -361,9 +361,13 @@ export interface components {
         /**
          * EventView
          * @description Мероприятие для экрана Web App (задача 2.9.2): поля + со-организаторы +
-         *     сводка RSVP + личная отметка + признак прав на управление + ссылка на анонс.
-         *     Доступен любому активному участнику проекта (в отличие от `GET /api/events/
-         *     {id}`, требующего прав на управление).
+         *     списки RSVP + сводка + личная отметка + признак прав на управление + ссылка
+         *     на анонс. Доступен любому активному участнику проекта (в отличие от
+         *     `GET /api/events/{id}`, требующего прав на управление).
+         *
+         *     Полные списки `going` / `not_going` здесь — «дом» для кнопки «полный список»
+         *     из анонса: при переполнении лимита длины анонс сворачивает никнеймы в числа
+         *     (TZ §4.3), а весь список смотрят на этом экране.
          */
         EventView: {
             /** Id */
@@ -392,15 +396,19 @@ export interface components {
             /** Is Finalized */
             is_finalized: boolean;
             /** Co Organizers */
-            co_organizers: components["schemas"]["EventViewCoOrganizer"][];
+            co_organizers: components["schemas"]["EventViewPerson"][];
+            /** Going */
+            going: components["schemas"]["EventViewPerson"][];
+            /** Not Going */
+            not_going: components["schemas"]["EventViewPerson"][];
             rsvp: components["schemas"]["EventRsvpSummary"];
             /** Announcement Url */
             announcement_url: string | null;
             /** Can Manage */
             can_manage: boolean;
         };
-        /** EventViewCoOrganizer */
-        EventViewCoOrganizer: {
+        /** EventViewPerson */
+        EventViewPerson: {
             /** User Id */
             user_id: number;
             /** Name */
