@@ -1,7 +1,6 @@
 import datetime
 
 import pytest
-from aiogram import Bot
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -67,18 +66,17 @@ async def _seed(
 
 
 async def test_set_rsvp_going_then_summary(
-    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     ids = await _seed(session_factory)
     async with session_factory() as session:
-        outcome = await set_rsvp(
-            bot,
+        result = await set_rsvp(
             session,
             event_id=ids["event_id"],
             tg_user_id=_MEMBER_TG_ID,
             target=RSVPStatus.GOING,
         )
-    assert outcome is RsvpOutcome.GOING
+    assert result == (RsvpOutcome.GOING, True)
 
     async with session_factory() as session:
         going, not_going, mine = await rsvp_summary(
@@ -88,30 +86,50 @@ async def test_set_rsvp_going_then_summary(
 
 
 async def test_set_rsvp_repeat_not_going_clears(
-    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     ids = await _seed(session_factory)
     async with session_factory() as session:
         await set_rsvp(
-            bot,
             session,
             event_id=ids["event_id"],
             tg_user_id=_MEMBER_TG_ID,
             target=RSVPStatus.NOT_GOING,
         )
     async with session_factory() as session:
-        outcome = await set_rsvp(
-            bot,
+        result = await set_rsvp(
             session,
             event_id=ids["event_id"],
             tg_user_id=_MEMBER_TG_ID,
             target=RSVPStatus.NOT_GOING,
         )
-    assert outcome is RsvpOutcome.CLEARED
+    assert result == (RsvpOutcome.CLEARED, True)
 
     async with session_factory() as session:
         rows = list(await session.scalars(select(EventRSVP)))
     assert rows == []
+
+
+async def test_set_rsvp_repeat_same_status_not_changed(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed(session_factory)
+    async with session_factory() as session:
+        await set_rsvp(
+            session,
+            event_id=ids["event_id"],
+            tg_user_id=_MEMBER_TG_ID,
+            target=RSVPStatus.GOING,
+        )
+    async with session_factory() as session:
+        result = await set_rsvp(
+            session,
+            event_id=ids["event_id"],
+            tg_user_id=_MEMBER_TG_ID,
+            target=RSVPStatus.GOING,
+        )
+    # Повторный клик по уже стоящей отметке — вызывающий не станет дёргать анонс.
+    assert result == (RsvpOutcome.GOING, False)
 
 
 @pytest.mark.parametrize(
@@ -123,7 +141,6 @@ async def test_set_rsvp_repeat_not_going_clears(
 )
 async def test_set_rsvp_rejects_closed_event(
     session_factory: async_sessionmaker[AsyncSession],
-    bot: Bot,
     kwargs: dict[str, object],
     code: str,
 ) -> None:
@@ -131,7 +148,6 @@ async def test_set_rsvp_rejects_closed_event(
     async with session_factory() as session:
         with pytest.raises(RsvpError) as exc:
             await set_rsvp(
-                bot,
                 session,
                 event_id=ids["event_id"],
                 tg_user_id=_MEMBER_TG_ID,
@@ -141,13 +157,12 @@ async def test_set_rsvp_rejects_closed_event(
 
 
 async def test_set_rsvp_rejects_non_member(
-    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     ids = await _seed(session_factory)
     async with session_factory() as session:
         with pytest.raises(RsvpError) as exc:
             await set_rsvp(
-                bot,
                 session,
                 event_id=ids["event_id"],
                 tg_user_id=_OUTSIDER_TG_ID,
@@ -157,13 +172,12 @@ async def test_set_rsvp_rejects_non_member(
 
 
 async def test_set_rsvp_event_not_found(
-    session_factory: async_sessionmaker[AsyncSession], bot: Bot
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     await _seed(session_factory)
     async with session_factory() as session:
         with pytest.raises(RsvpError) as exc:
             await set_rsvp(
-                bot,
                 session,
                 event_id=987654,
                 tg_user_id=_MEMBER_TG_ID,

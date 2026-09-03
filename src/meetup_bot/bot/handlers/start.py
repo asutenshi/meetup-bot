@@ -11,6 +11,7 @@ from meetup_bot.services.rsvp import (
     RsvpError,
     RsvpOutcome,
     parse_rsvp_start_payload,
+    refresh_announcement_after_rsvp,
     set_rsvp,
 )
 
@@ -106,8 +107,7 @@ async def _try_register_with_rsvp(
     outcome: RsvpOutcome | None = None
     error: str | None = None
     try:
-        outcome = await set_rsvp(
-            bot,
+        result = await set_rsvp(
             session,
             event_id=event.id,
             tg_user_id=message.from_user.id,
@@ -118,6 +118,10 @@ async def _try_register_with_rsvp(
         # `set_rsvp` до этого ничего не писал, так что коммитим членство сами.
         error = exc.code
         await session.commit()
+    else:
+        outcome = result.outcome
+        if result.changed:
+            await refresh_announcement_after_rsvp(bot, session, event.id)
 
     await message.answer(
         _compose_rsvp_start_reply(

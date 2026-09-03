@@ -38,7 +38,12 @@ from meetup_bot.services.events import (
     cancel_event,
     notify_going_members,
 )
-from meetup_bot.services.rsvp import RsvpError, rsvp_summary, set_rsvp
+from meetup_bot.services.rsvp import (
+    RsvpError,
+    refresh_announcement_after_rsvp,
+    rsvp_summary,
+    set_rsvp,
+)
 
 router = APIRouter(prefix="/api", tags=["events"])
 
@@ -531,8 +536,7 @@ async def event_rsvp(
 ) -> EventRsvpSummary:
     await _load_project_event(session, ctx, event_id)
     try:
-        await set_rsvp(
-            bot,
+        result = await set_rsvp(
             session,
             event_id=event_id,
             tg_user_id=ctx.user.tg_user_id,
@@ -542,4 +546,6 @@ async def event_rsvp(
         raise HTTPException(
             status_code=_RSVP_ERROR_STATUS[exc.code], detail=exc.code
         ) from exc
+    if result.changed:
+        await refresh_announcement_after_rsvp(bot, session, event_id)
     return await _rsvp_summary(session, event_id=event_id, user_id=ctx.user.id)

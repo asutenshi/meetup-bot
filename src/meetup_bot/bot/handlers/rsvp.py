@@ -3,10 +3,12 @@
 
 `callback_data` кнопок анонса — `rsvp:<event_id>:<going|not_going>` (см.
 `services/event_announcement.py`). Вся логика — upsert `EventRSVP` по
-(`event_id`, `user_id`) с `updated_by = user_id`, проверки и перерисовка анонса —
-в `services/rsvp.py::set_rsvp` (общий код с экраном мероприятия в Web App,
-задача 2.9.2). Здесь только разбор `callback_data` и перевод результата в
-короткое всплывающее подтверждение.
+(`event_id`, `user_id`) с `updated_by = user_id` и проверки — в
+`services/rsvp.py::set_rsvp` (общий код с экраном мероприятия в Web App,
+задача 2.9.2). Здесь только разбор `callback_data`, короткое всплывающее
+подтверждение и — уже после ответа на callback — перерисовка анонса
+(`refresh_announcement_after_rsvp`), чтобы подвисший `editMessageText` не
+съедал окно ответа на callback-запрос.
 
 Постфактум-правка чужого RSVP организатором/админом (`updated_by != user_id`) —
 отдельный сценарий (Web App, задача 3.2), не этот хендлер.
@@ -25,6 +27,7 @@ from meetup_bot.services.rsvp import (
     RsvpError,
     RsvpOutcome,
     build_rsvp_start_payload,
+    refresh_announcement_after_rsvp,
     set_rsvp,
 )
 
@@ -92,8 +95,7 @@ def create_router() -> Router:
         event_id, target = parsed
 
         try:
-            outcome = await set_rsvp(
-                bot,
+            result = await set_rsvp(
                 session,
                 event_id=event_id,
                 tg_user_id=callback.from_user.id,
@@ -108,6 +110,11 @@ def create_router() -> Router:
             await callback.answer(_ERROR_TEXT[exc.code], show_alert=True)
             return
 
-        await callback.answer(_OUTCOME_TEXT[outcome])
+        # Сперва короткое подтверждение (окно ответа на callback — секунды), и
+        # только потом перерисовка анонса с сетевым вызовом к Telegram: если та
+        # подвиснет, callback уже подтверждён и «query is too old» не выскочит.
+        await callback.answer(_OUTCOME_TEXT[result.outcome])
+        if result.changed:
+            await refresh_announcement_after_rsvp(bot, session, event_id)
 
     return router
