@@ -4,6 +4,12 @@
 inline-кнопки «✅ Участвую» / «❌ Не участвую». `callback_data` кнопок —
 `rsvp:<event_id>:<going|not_going>`. Хендлер нажатий — `bot/handlers/rsvp.py`
 (задача 2.6); живое обновление текста при каждом нажатии — `refresh_event_announcement`.
+
+У мероприятия с заполненным `Event.details` под RSVP-кнопками появляется ещё
+одна строка — кнопка-ссылка «📄 Подробности мероприятия» (`startapp`-ссылка
+`t.me/<bot>/<app>?startapp=…` на экран мероприятия в Web App; требует
+`webapp_short_name` в конфиге, TZ §3.8, §4.3). Сам текст `details` в анонс не
+идёт.
 """
 
 from __future__ import annotations
@@ -88,18 +94,10 @@ def build_rsvp_keyboard(
     event_id: int, *, details_url: str | None = None
 ) -> InlineKeyboardMarkup:
     """Пара кнопок «Участвую» / «Не участвую» под анонсом. Если у мероприятия
-    заполнено подробное описание (`details_url` задан) — сверху добавляется
-    кнопка-ссылка «📄 Подробности мероприятия» на экран мероприятия в Web App."""
-    rows: list[list[InlineKeyboardButton]] = []
-    if details_url is not None:
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text="📄 Подробности мероприятия", url=details_url
-                )
-            ]
-        )
-    rows.append(
+    заполнено подробное описание (`details_url` задан) — снизу, отдельной
+    строкой под RSVP-кнопками, добавляется кнопка-ссылка «📄 Подробности
+    мероприятия» (`startapp`-ссылка на экран мероприятия в Web App)."""
+    rows: list[list[InlineKeyboardButton]] = [
         [
             InlineKeyboardButton(
                 text="✅ Участвую",
@@ -110,7 +108,15 @@ def build_rsvp_keyboard(
                 callback_data=rsvp_callback_data(event_id, RSVPStatus.NOT_GOING),
             ),
         ]
-    )
+    ]
+    if details_url is not None:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="📄 Подробности мероприятия", url=details_url
+                )
+            ]
+        )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -231,9 +237,6 @@ def build_announcement_text(
     lines.append(f"📍 {escape(event.location)}")
     lines.append("")
     lines.append(escape(event.description))
-    if event.details:
-        lines.append("")
-        lines.append("📄 Подробности — в приложении")
 
     extras: list[str] = []
     if event.budget_per_person is not None:

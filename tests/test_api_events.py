@@ -32,6 +32,7 @@ from meetup_bot.db.models import (
     ProjectTopicSetting,
     User,
 )
+from meetup_bot.services.event_announcement import configure_announcements
 from tests.conftest import BOT_TOKEN, FakeBotApi
 
 _CREATOR_TG_ID = 111
@@ -241,13 +242,14 @@ async def test_create_event_persists_and_publishes_announcement(
     assert sent.reply_markup is not None
 
 
-async def test_create_event_stores_details_and_announces_hint(
+async def test_create_event_stores_details_and_adds_details_button(
     session_factory: async_sessionmaker[AsyncSession],
     bot: Bot,
     fake_bot_api: FakeBotApi,
 ) -> None:
     await _seed(session_factory)
     app = _app(session_factory, bot)
+    configure_announcements(bot, webapp_short_name="app")
 
     async with await _client(app) as client:
         response = await client.post(
@@ -265,9 +267,13 @@ async def test_create_event_stores_details_and_announces_hint(
         assert event.details == "Программа: сбор 10:00, старт 11:00"
 
     sent = fake_bot_api.sent_messages[-1]
-    # краткая афиша + пометка, но не сам подробный текст
-    assert "📄 Подробности — в приложении" in (sent.text or "")
+    # подробный текст в анонс не идёт — ни целиком, ни пометкой
     assert "старт 11:00" not in (sent.text or "")
+    assert "Подробности" not in (sent.text or "")
+    # …только кнопка «Подробности» отдельной строкой под RSVP-кнопками
+    rows = sent.reply_markup.inline_keyboard
+    assert rows[1][0].text == "📄 Подробности мероприятия"
+    assert rows[1][0].url == f"https://t.me/test_bot/app?startapp=alpha_{event_id}"
 
 
 async def test_create_event_blank_details_stored_as_null(

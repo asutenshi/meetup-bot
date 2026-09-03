@@ -376,22 +376,23 @@ def test_rsvp_keyboard_callback_data() -> None:
     assert datas == ["rsvp:42:going", "rsvp:42:not_going"]
 
 
-def test_rsvp_keyboard_prepends_details_button() -> None:
+def test_rsvp_keyboard_appends_details_button_below_rsvp() -> None:
     keyboard = build_rsvp_keyboard(
         42, details_url="https://t.me/meetup_bot/app?startapp=alpha_42"
     )
     rows = keyboard.inline_keyboard
 
     assert len(rows) == 2
-    assert rows[0][0].text == "📄 Подробности мероприятия"
-    assert rows[0][0].url == "https://t.me/meetup_bot/app?startapp=alpha_42"
-    assert [b.callback_data for b in rows[1]] == [
+    # RSVP-кнопки — первой строкой, «Подробности» — отдельной строкой под ними.
+    assert [b.callback_data for b in rows[0]] == [
         rsvp_callback_data(42, RSVPStatus.GOING),
         rsvp_callback_data(42, RSVPStatus.NOT_GOING),
     ]
+    assert rows[1][0].text == "📄 Подробности мероприятия"
+    assert rows[1][0].url == "https://t.me/meetup_bot/app?startapp=alpha_42"
 
 
-def test_announcement_shows_details_hint_only_when_details_set() -> None:
+def test_announcement_never_mentions_details_in_text() -> None:
     with_details = build_announcement_text(
         _event(details="Программа: 10:00 сбор, 11:00 старт"),
         co_organizers=[],
@@ -399,14 +400,10 @@ def test_announcement_shows_details_hint_only_when_details_set() -> None:
         not_going=[],
         timezone="Europe/Moscow",
     )
-    without = build_announcement_text(
-        _event(), co_organizers=[], going=[], not_going=[], timezone="Europe/Moscow"
-    )
 
-    assert "📄 Подробности — в приложении" in with_details
-    # сам подробный текст в анонс не идёт
+    # Ни пометки, ни самого подробного текста в анонсе нет — только кнопка.
+    assert "Подробности" not in with_details
     assert "10:00 сбор" not in with_details
-    assert "📄 Подробности — в приложении" not in without
 
 
 def test_update_notification_flags_details_change() -> None:
@@ -556,8 +553,12 @@ async def test_refresh_event_announcement_adds_details_button_when_configured(
         await refresh_event_announcement(bot, session, event)
 
     rows = fake_bot_api.edited_messages[-1].reply_markup.inline_keyboard
-    assert rows[0][0].text == "📄 Подробности мероприятия"
-    assert rows[0][0].url == (
+    # RSVP-кнопки первой строкой, кнопка «Подробности» — отдельной строкой под ними.
+    assert rows[0][0].callback_data == rsvp_callback_data(
+        ids["event_id"], RSVPStatus.GOING
+    )
+    assert rows[1][0].text == "📄 Подробности мероприятия"
+    assert rows[1][0].url == (
         f"https://t.me/test_bot/app?startapp=alpha_{ids['event_id']}"
     )
 
