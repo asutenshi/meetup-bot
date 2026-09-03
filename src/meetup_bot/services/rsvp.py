@@ -3,9 +3,13 @@
 
 `set_rsvp` держит всю логику одной точкой: проверки (мероприятие существует, не
 отменено, явка не финализирована, вызывающий — активный участник проекта), upsert
-`EventRSVP` с `updated_by = user_id` (самоотметка), живое обновление анонса и
-`commit`. Повторное нажатие «❌ Не участвую» у уже отмеченного `not_going` снимает
-отметку целиком — строка удаляется, человек возвращается в группу «ещё думает».
+`EventRSVP` с `updated_by = user_id` (самоотметка) и `commit`. Повторное нажатие
+«❌ Не участвую» у уже отмеченного `not_going` снимает отметку целиком — строка
+удаляется, человек возвращается в группу «ещё думает».
+
+Живое обновление анонса вынесено в `refresh_announcement_after_rsvp` и остаётся
+за вызывающим: его зовут уже после быстрого ответа человеку и глушат ошибку
+Bot API, чтобы севшая сеть до Telegram не теряла саму отметку (см. коммент там).
 
 Постфактум-правка чужого RSVP организатором (`updated_by != user_id`) — отдельный
 сценарий (задача 3.2), здесь не поддерживается.
@@ -14,14 +18,19 @@
 from __future__ import annotations
 
 import enum
+import logging
+from typing import NamedTuple
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramAPIError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meetup_bot.db.enums import EventStatus, MembershipStatus, RSVPStatus
 from meetup_bot.db.models import Event, EventRSVP, ProjectMembership, User
 from meetup_bot.services.event_announcement import refresh_event_announcement
+
+logger = logging.getLogger("meetup_bot.rsvp")
 
 
 class RsvpOutcome(enum.Enum):
@@ -30,6 +39,16 @@ class RsvpOutcome(enum.Enum):
     GOING = "going"
     NOT_GOING = "not_going"
     CLEARED = "cleared"
+
+
+class RsvpResult(NamedTuple):
+    """Итог [[set_rsvp]]. `changed` — поменялся ли фактический статус (у повторного
+    клика по уже стоящей отметке `False`); по нему вызывающий решает, дёргать ли
+    [[refresh_announcement_after_rsvp]], чтобы не слать лишний `editMessageText`.
+    """
+
+    outcome: RsvpOutcome
+    changed: bool
 
 
 class RsvpError(Exception):
@@ -103,18 +122,44 @@ async def rsvp_summary(
     )
 
 
+async def refresh_announcement_after_rsvp(
+    bot: Bot, session: AsyncSession, event_id: int
+) -> None:
+    """Живое обновление анонса после самоотметки — необязательный побочный
+    эффект, вынесенный из [[set_rsvp]].
+
+    Ошибку Bot API (таймаут севшей сети до Telegram, удалённый пост анонса и
+    т. п.) глушим с записью в лог: сам RSVP к этому моменту уже в БД, а анонс
+    догонит следующая отметка. Иначе подвисший `editMessageText` роняет ручку
+    `POST …/rsvp` в 500, а под анонсом успевает протухнуть callback-запрос
+    («query is too old»).
+    """
+    event = await session.get(Event, event_id)
+    if event is None:
+        return
+    try:
+        await refresh_event_announcement(bot, session, event)
+    except TelegramAPIError:
+        logger.warning(
+            "не удалось обновить анонс после RSVP", extra={"event_id": event_id}
+        )
+
+
 async def set_rsvp(
-    bot: Bot,
     session: AsyncSession,
     *,
     event_id: int,
     tg_user_id: int,
     target: RSVPStatus,
-) -> RsvpOutcome:
-    """Самоотметка участника `tg_user_id` на мероприятие `event_id`.
+) -> RsvpResult:
+    """Самоотметка участника `tg_user_id` на мероприятие `event_id`: проверки,
+    upsert `EventRSVP` и `commit`.
 
-    Бросает `RsvpError`, если отметиться нельзя. Иначе делает upsert, при
-    изменении статуса перерисовывает анонс и коммитит транзакцию.
+    Бросает `RsvpError`, если отметиться нельзя. Перерисовку анонса сюда не
+    включаем — её (по `RsvpResult.changed`) делает вызывающий уже после быстрого
+    ответа человеку через [[refresh_announcement_after_rsvp]]: так подвисший на
+    севшей сети `editMessageText` не роняет ручку в 500 и не съедает окно ответа
+    на callback-запрос под анонсом.
     """
     event = await session.get(Event, event_id)
     if event is None:
@@ -155,10 +200,8 @@ async def set_rsvp(
         and rsvp.status == RSVPStatus.NOT_GOING
     ):
         await session.delete(rsvp)
-        await session.flush()
-        await refresh_event_announcement(bot, session, event)
         await session.commit()
-        return RsvpOutcome.CLEARED
+        return RsvpResult(RsvpOutcome.CLEARED, changed=True)
 
     changed = rsvp is None or rsvp.status != target
     if rsvp is None:
@@ -174,9 +217,9 @@ async def set_rsvp(
         rsvp.status = target
         rsvp.updated_by = user.id
 
-    if changed:
-        await session.flush()
-        await refresh_event_announcement(bot, session, event)
     await session.commit()
 
-    return RsvpOutcome.GOING if target == RSVPStatus.GOING else RsvpOutcome.NOT_GOING
+    outcome = (
+        RsvpOutcome.GOING if target == RSVPStatus.GOING else RsvpOutcome.NOT_GOING
+    )
+    return RsvpResult(outcome, changed=changed)

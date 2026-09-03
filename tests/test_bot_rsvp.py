@@ -1,6 +1,9 @@
 import datetime
 
+import pytest
 from aiogram import Bot
+from aiogram.exceptions import TelegramNetworkError
+from aiogram.methods import EditMessageText
 from aiogram.types import Update
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -335,6 +338,35 @@ async def test_repeated_going_click_does_not_clear_rsvp(
     rsvp = await _rsvp_row(session_factory, ids, "anya")
     assert rsvp is not None
     assert rsvp.status == RSVPStatus.GOING
+    assert fake_bot_api.callback_answers[-1] == "Вы участвуете ✅"
+
+
+async def test_announcement_edit_failure_keeps_rsvp_and_answers_callback(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Севшая сеть до Telegram на перерисовке анонса не должна ни терять
+    отметку, ни оставлять callback без ответа («query is too old»)."""
+    ids = await _seed(session_factory)
+    dispatcher = create_dispatcher(session_factory)
+
+    async def dead_edit(**kwargs: object) -> None:
+        raise TelegramNetworkError(
+            method=EditMessageText(chat_id=1, message_id=1, text="x"),
+            message="Request timeout error",
+        )
+
+    monkeypatch.setattr(bot, "edit_message_text", dead_edit)
+
+    await dispatcher.feed_update(
+        bot=bot,
+        update=Update.model_validate(_rsvp_callback(ids["event_id"], "going")),
+    )
+
+    rsvp = await _rsvp_row(session_factory, ids, "anya")
+    assert rsvp is not None and rsvp.status == RSVPStatus.GOING
     assert fake_bot_api.callback_answers[-1] == "Вы участвуете ✅"
 
 

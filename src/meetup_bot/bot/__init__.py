@@ -1,5 +1,6 @@
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -26,9 +27,20 @@ from meetup_bot.bot.middlewares import (
 )
 from meetup_bot.config import Settings
 
+# Наши вызовы Bot API короткие (send/edit/answer), long-polling не используем
+# (вебхук). Дефолтные 60 с на запрос — это чистый простой при севшей сети до
+# Telegram, за который под анонсом успевает протухнуть callback-запрос. 20 с
+# хватает с запасом; на флуд-контроль это не влияет — его aiogram отдаёт
+# отдельным `TelegramRetryAfter`, а не держит соединение.
+_BOT_API_REQUEST_TIMEOUT_S = 20.0
+
 
 def create_bot(settings: Settings) -> Bot:
-    bot = Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    bot = Bot(
+        token=settings.bot_token,
+        session=AiohttpSession(timeout=_BOT_API_REQUEST_TIMEOUT_S),
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
     # Логирование неуспешных вызовов Bot API одним местом (TZ §6.2).
     bot.session.middleware(TelegramErrorLoggingMiddleware())
     return bot

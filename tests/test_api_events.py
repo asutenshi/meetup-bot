@@ -8,6 +8,8 @@ from urllib.parse import urlencode
 import httpx
 import pytest
 from aiogram import Bot
+from aiogram.exceptions import TelegramNetworkError
+from aiogram.methods import EditMessageText
 from fastapi import FastAPI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -932,6 +934,45 @@ async def test_event_rsvp_going_updates_summary_and_announcement(
         assert rsvp is not None
         assert rsvp.status == RSVPStatus.GOING
         assert rsvp.updated_by == ids["other_id"]
+
+
+async def test_event_rsvp_persists_when_announcement_edit_fails(
+    session_factory: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Севшая сеть до Telegram на перерисовке анонса не роняет ручку в 500 —
+    отметка коммитится, ответ 200, анонс догонит позже."""
+    ids = await _seed(session_factory)
+    event_id = await _make_event(
+        session_factory, project_id=ids["project_id"], created_by=ids["creator_id"]
+    )
+
+    async def dead_edit(**kwargs: object) -> None:
+        raise TelegramNetworkError(
+            method=EditMessageText(chat_id=1, message_id=1, text="x"),
+            message="Request timeout error",
+        )
+
+    monkeypatch.setattr(bot, "edit_message_text", dead_edit)
+    app = _app(session_factory, bot)
+
+    async with await _client(app) as client:
+        response = await client.post(
+            f"/api/events/{event_id}/rsvp",
+            params={"project": "alpha"},
+            headers={INIT_DATA_HEADER: _init_data(_OTHER_TG_ID)},
+            json={"status": "going"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["my_rsvp"] == "going"
+    async with session_factory() as session:
+        rsvp = await session.scalar(
+            select(EventRSVP).where(EventRSVP.event_id == event_id)
+        )
+        assert rsvp is not None and rsvp.status == RSVPStatus.GOING
 
 
 async def test_event_rsvp_repeat_not_going_clears_mark(
