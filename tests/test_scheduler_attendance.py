@@ -158,6 +158,8 @@ async def test_respects_project_timezone(session: AsyncSession) -> None:
     project = await _project(session, timezone="Asia/Vladivostok")
     event = await _event(session, project)
     _user, membership = await _member(session, project)
+    going_user, _going = await _member(session, project)
+    await _rsvp(session, event, going_user, RSVPStatus.GOING)
 
     # Для Москвы момент уже наступил, для Владивостока — ещё нет.
     await finalize_attendance(session, now=dt.datetime(2026, 9, 2, 12, 0, tzinfo=UTC))
@@ -173,6 +175,8 @@ async def test_uses_ends_at_for_multiday_event(session: AsyncSession) -> None:
     ends_at = STARTS_AT + dt.timedelta(days=3)
     event = await _event(session, project, ends_at=ends_at)
     _user, membership = await _member(session, project)
+    going_user, _going = await _member(session, project)
+    await _rsvp(session, event, going_user, RSVPStatus.GOING)
 
     # Позже порога по starts_at, но раньше порога по ends_at — не трогаем.
     await finalize_attendance(session, now=STARTS_AT + dt.timedelta(days=1))
@@ -231,6 +235,41 @@ async def test_going_rsvp_from_non_member_is_harmless(session: AsyncSession) -> 
 
     await finalize_attendance(session, now=MOSCOW_DUE + dt.timedelta(hours=1))
 
+    assert event.attendance_finalized_at is not None
+
+
+async def test_empty_event_finalized_without_touching_counters(
+    session: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    project = await _project(session)
+    event = await _event(session, project)
+    _u1, m1 = await _member(session, project, missed=2)
+    _u2, m2 = await _member(session, project, missed=0)
+    caplog.set_level(logging.WARNING, logger="meetup_bot.scheduler")
+
+    now = MOSCOW_DUE + dt.timedelta(hours=1)
+    await finalize_attendance(session, now=now)
+
+    # Ни одного `going` → счётчики не трогаем никому, но событие финализируем.
+    assert m1.consecutive_missed_events == 2
+    assert m2.consecutive_missed_events == 0
+    assert m1.last_attended_at is None
+    assert m2.last_attended_at is None
+    assert event.attendance_finalized_at == now
+    assert "ни одного подтверждённого участия" in caplog.text
+
+
+async def test_event_with_only_not_going_is_treated_as_empty(
+    session: AsyncSession,
+) -> None:
+    project = await _project(session)
+    event = await _event(session, project)
+    user, membership = await _member(session, project, missed=1)
+    await _rsvp(session, event, user, RSVPStatus.NOT_GOING)
+
+    await finalize_attendance(session, now=MOSCOW_DUE + dt.timedelta(hours=1))
+
+    assert membership.consecutive_missed_events == 1
     assert event.attendance_finalized_at is not None
 
 
