@@ -56,6 +56,11 @@ async def finalize_attendance(
     активные участники (в т.ч. не ответившие на RSVP) — отсутствовавшими
     (`consecutive_missed_events += 1`). По завершении — `attendance_finalized_at =
     now`, повторно джоба мероприятие не берёт.
+
+    Особый случай — ни одного подтверждённого участия (`going`): счётчики
+    посещаемости не трогаются никому (такое мероприятие почти наверняка не
+    состоялось или тестовое, начислять пропуск всем несправедливо), мероприятие
+    всё равно помечается финализированным и пишется `warning`.
     """
     now = now or datetime.now(UTC)
 
@@ -75,15 +80,26 @@ async def finalize_attendance(
         if now < _finalization_due_at(event.ends_at or event.starts_at, tz_name):
             continue
 
+        going_user_ids = {
+            rsvp.user_id for rsvp in event.rsvps if rsvp.status == RSVPStatus.GOING
+        }
+        if not going_user_ids:
+            event.attendance_finalized_at = now
+            finalized += 1
+            logger.warning(
+                "финализация явки: событие %d (проект %d) — ни одного "
+                "подтверждённого участия, счётчики не тронуты",
+                event.id,
+                event.project_id,
+            )
+            continue
+
         memberships = await session.scalars(
             select(ProjectMembership).where(
                 ProjectMembership.project_id == event.project_id,
                 ProjectMembership.status == MembershipStatus.ACTIVE,
             )
         )
-        going_user_ids = {
-            rsvp.user_id for rsvp in event.rsvps if rsvp.status == RSVPStatus.GOING
-        }
 
         attended = missed = 0
         for membership in memberships:
