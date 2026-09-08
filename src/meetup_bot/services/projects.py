@@ -51,6 +51,9 @@ async def get_or_create_user(
         user.username = username
         user.first_name = first_name
         user.last_name = last_name
+        # Раз человек пишет боту — личка снова доступна, снимаем метку блокировки
+        # (TZ §6.2, задача 5.1).
+        user.bot_blocked_at = None
         return user
 
     user = User(

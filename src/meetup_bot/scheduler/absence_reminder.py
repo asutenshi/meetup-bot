@@ -20,14 +20,15 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramAPIError
+from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from meetup_bot.db.enums import EventStatus, MembershipStatus
-from meetup_bot.db.models import Event, Project, ProjectMembership, ProjectSettings
+from meetup_bot.db.models import Event, Project, ProjectMembership, ProjectSettings, User
 from meetup_bot.scheduler.timezones import DEFAULT_TZ, as_utc, resolve_project_tz
+from meetup_bot.services.users import mark_bot_blocked
 
 logger = logging.getLogger("meetup_bot.scheduler")
 
@@ -92,10 +93,14 @@ async def remind_absent_members(
         memberships = (
             await session.scalars(
                 select(ProjectMembership)
+                .join(ProjectMembership.user)
                 .where(
                     ProjectMembership.project_id == project.id,
                     ProjectMembership.status == MembershipStatus.ACTIVE,
                     ProjectMembership.consecutive_missed_events < escalation_count,
+                    # Заблокировавшему бота слать некуда — не тратим проход
+                    # (TZ §6.2, задача 5.1).
+                    User.bot_blocked_at.is_(None),
                 )
                 .options(selectinload(ProjectMembership.user))
             )
@@ -132,6 +137,15 @@ async def remind_absent_members(
                     await bot.send_message(
                         chat_id=user.tg_user_id,
                         text=_reminder_text(days, next_event, tz_name),
+                    )
+                except TelegramForbiddenError:
+                    delivered = False
+                    await mark_bot_blocked(session, tg_user_id=user.tg_user_id)
+                    logger.info(
+                        "напоминание «давно не виделись»: пользователь %d заблокировал "
+                        "бота (проект %d) — помечен, дальше не беспокоим",
+                        user.tg_user_id,
+                        project.id,
                     )
                 except TelegramAPIError:
                     delivered = False

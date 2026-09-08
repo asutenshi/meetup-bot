@@ -24,7 +24,7 @@ from datetime import UTC, datetime, timedelta
 from html import escape
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramAPIError
+from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -39,6 +39,7 @@ from meetup_bot.db.models import (
     User,
 )
 from meetup_bot.scheduler.timezones import DEFAULT_TZ, as_utc, resolve_project_tz
+from meetup_bot.services.users import mark_bot_blocked
 
 logger = logging.getLogger("meetup_bot.scheduler")
 
@@ -186,6 +187,13 @@ async def escalate_missed_events(
                 try:
                     await bot.send_message(chat_id=recipient.tg_user_id, text=text)
                     sent += 1
+                except TelegramForbiddenError:
+                    await mark_bot_blocked(session, tg_user_id=recipient.tg_user_id)
+                    logger.info(
+                        "эскалация: получатель %d заблокировал бота (проект %d) — помечен",
+                        recipient.tg_user_id,
+                        project.id,
+                    )
                 except TelegramAPIError:
                     logger.warning(
                         "эскалация: не доставлено получателю %d (проект %d, участник %d)",

@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramAPIError
+from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
 from aiogram.types import InlineKeyboardMarkup
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +30,7 @@ from meetup_bot.services.event_announcement import (
     build_event_cancelled_notification,
     refresh_event_announcement,
 )
+from meetup_bot.services.users import mark_bot_blocked
 
 
 async def _co_organizer_ids(session: AsyncSession, event_id: int) -> set[int]:
@@ -289,16 +290,26 @@ async def notify_going_members(
 ) -> int:
     """Рассылает `text` в личку всем подтвердившим участие. Ошибку доставки
     конкретному человеку (бот заблокирован, чат не начат) глотаем — она не
-    должна ронять сохранение изменений. Возвращает число доставленных."""
+    должна ронять сохранение изменений. `403` дополнительно помечает `User`
+    как заблокировавшего бота (TZ §6.2, задача 5.1) и коммитит эти метки сам
+    (вызывающие рассылку — `cancel_event`, `PUT /api/events/{id}` — свои
+    изменения уже закоммитили выше). Возвращает число доставленных."""
     delivered = 0
+    blocked_any = False
     for user in await going_members(session, event):
         try:
             await bot.send_message(
                 chat_id=user.tg_user_id, text=text, reply_markup=reply_markup
             )
+        except TelegramForbiddenError:
+            await mark_bot_blocked(session, tg_user_id=user.tg_user_id)
+            blocked_any = True
+            continue
         except TelegramAPIError:
             continue
         delivered += 1
+    if blocked_any:
+        await session.commit()
     return delivered
 
 

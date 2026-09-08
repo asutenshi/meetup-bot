@@ -380,6 +380,21 @@ async def test_ignores_past_events_for_next_event_hint(
 # --- деградация ---------------------------------------------------------
 
 
+async def test_user_who_blocked_bot_is_not_a_candidate(
+    session: AsyncSession, bot: Bot, fake_bot_api: FakeBotApi
+) -> None:
+    project = await _project(session)
+    blocked_user, _ = await _member(
+        session, project, last_attended_at=AT_SEND_HOUR - dt.timedelta(days=20)
+    )
+    blocked_user.bot_blocked_at = AT_SEND_HOUR - dt.timedelta(days=1)
+    await session.flush()
+
+    await remind_absent_members(session, bot, now=AT_SEND_HOUR)
+
+    assert _texts_to(fake_bot_api, blocked_user.tg_user_id) == []
+
+
 async def test_marks_attempt_even_when_delivery_forbidden(
     session: AsyncSession,
     bot: Bot,
@@ -388,7 +403,7 @@ async def test_marks_attempt_even_when_delivery_forbidden(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     project = await _project(session)
-    _blocked_user, blocked = await _member(
+    blocked_user, blocked = await _member(
         session, project, last_attended_at=AT_SEND_HOUR - dt.timedelta(days=20)
     )
     ok_user, ok = await _member(
@@ -408,15 +423,18 @@ async def test_marks_attempt_even_when_delivery_forbidden(
         return await real_send(**kwargs)
 
     monkeypatch.setattr(bot, "send_message", _maybe_blocked)
-    caplog.set_level(logging.WARNING, logger="meetup_bot.scheduler")
+    caplog.set_level(logging.INFO, logger="meetup_bot.scheduler")
 
     await remind_absent_members(session, bot, now=AT_SEND_HOUR)
 
-    # первый упал, второй доставлен — оба помечены как «попытка была»
+    # первый упал (403), второй доставлен — оба помечены как «попытка была»
     assert blocked.last_reminder_sent_at == AT_SEND_HOUR
     assert ok.last_reminder_sent_at == AT_SEND_HOUR
     assert len(_texts_to(fake_bot_api, ok_user.tg_user_id)) == 1
-    assert "не доставлено" in caplog.text
+    # 403 → пользователь помечен как заблокировавший бота (TZ §6.2, задача 5.1)
+    assert blocked_user.bot_blocked_at is not None
+    assert ok_user.bot_blocked_at is None
+    assert "заблокировал бота" in caplog.text
 
 
 async def test_runs_without_bot(session: AsyncSession) -> None:

@@ -1,6 +1,9 @@
 import datetime
 
+import pytest
 from aiogram import Bot
+from aiogram.exceptions import TelegramForbiddenError
+from aiogram.methods import SendMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meetup_bot.db.enums import EventStatus, MembershipRole, RSVPStatus
@@ -17,6 +20,7 @@ from meetup_bot.services.events import (
     cancel_event,
     going_members,
     list_manageable_events,
+    notify_going_members,
     user_is_project_admin,
 )
 from tests.conftest import FakeBotApi
@@ -190,3 +194,52 @@ async def test_cancel_event_sets_status_notifies_and_reports_missing_announcemen
     assert notified == 1
     assert event.status == EventStatus.CANCELLED
     assert any("Мероприятие отменено" in text for text in fake_bot_api.sent_texts)
+
+
+async def test_notify_going_members_marks_blocked_on_403(
+    session: AsyncSession,
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ids = await _seed(session)
+    event = await session.get(Event, ids["event_id"])
+    assert event is not None
+    session.add_all(
+        [
+            EventRSVP(
+                event_id=event.id,
+                user_id=ids["member_id"],
+                status=RSVPStatus.GOING,
+                updated_by=ids["member_id"],
+            ),
+            EventRSVP(
+                event_id=event.id,
+                user_id=ids["admin_id"],
+                status=RSVPStatus.GOING,
+                updated_by=ids["admin_id"],
+            ),
+        ]
+    )
+    await session.commit()
+
+    blocked = await session.get(User, ids["member_id"])
+    assert blocked is not None
+    real_send = bot.send_message
+
+    async def _maybe_blocked(**kwargs: object):  # type: ignore[no-untyped-def]
+        if kwargs.get("chat_id") == blocked.tg_user_id:
+            raise TelegramForbiddenError(
+                method=SendMessage(chat_id=0, text=""), message="bot was blocked"
+            )
+        return await real_send(**kwargs)
+
+    monkeypatch.setattr(bot, "send_message", _maybe_blocked)
+
+    delivered = await notify_going_members(bot, session, event, text="привет")
+
+    assert delivered == 1  # только админ
+    assert blocked.bot_blocked_at is not None
+    ok = await session.get(User, ids["admin_id"])
+    assert ok is not None
+    assert ok.bot_blocked_at is None

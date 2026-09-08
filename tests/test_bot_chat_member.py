@@ -101,3 +101,90 @@ async def test_status_change_other_than_join_is_ignored(
 
     assert project is None
     assert fake_bot_api.posts == []
+
+
+def _member_dict(status: str) -> dict:
+    member = {
+        "user": {"id": 123, "is_bot": True, "first_name": "TestBot"},
+        "status": status,
+    }
+    if status == "kicked":
+        member["until_date"] = 0
+    return member
+
+
+def _private_membership_update(new_status: str, *, update_id: int = 1) -> dict:
+    return {
+        "update_id": update_id,
+        "my_chat_member": {
+            "chat": {"id": 555, "type": "private"},
+            "from": {"id": 555, "is_bot": False, "first_name": "Blocker"},
+            "date": 1700000000,
+            "old_chat_member": _member_dict(
+                "member" if new_status == "kicked" else "kicked"
+            ),
+            "new_chat_member": _member_dict(new_status),
+        },
+    }
+
+
+async def test_private_block_marks_user_bot_blocked(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        session.add(User(tg_user_id=555, first_name="Blocker"))
+        await session.commit()
+
+    dispatcher = create_dispatcher(session_factory)
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_private_membership_update("kicked"))
+    )
+
+    async with session_factory() as session:
+        user = await session.scalar(select(User).where(User.tg_user_id == 555))
+        assert user is not None
+        assert user.bot_blocked_at is not None
+
+
+async def test_private_unblock_clears_flag(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    import datetime as dt
+
+    async with session_factory() as session:
+        session.add(
+            User(
+                tg_user_id=555,
+                first_name="Blocker",
+                bot_blocked_at=dt.datetime(2026, 1, 1, tzinfo=dt.UTC),
+            )
+        )
+        await session.commit()
+
+    dispatcher = create_dispatcher(session_factory)
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_private_membership_update("member"))
+    )
+
+    async with session_factory() as session:
+        user = await session.scalar(select(User).where(User.tg_user_id == 555))
+        assert user is not None
+        assert user.bot_blocked_at is None
+
+
+async def test_private_block_of_unknown_user_is_noop(
+    bot: Bot,
+    fake_bot_api: FakeBotApi,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    dispatcher = create_dispatcher(session_factory)
+    await dispatcher.feed_update(
+        bot=bot, update=Update.model_validate(_private_membership_update("kicked"))
+    )
+
+    async with session_factory() as session:
+        assert await session.scalar(select(User).where(User.tg_user_id == 555)) is None
