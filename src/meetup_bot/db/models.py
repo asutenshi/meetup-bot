@@ -198,6 +198,17 @@ class Event(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    # Оптимистичная блокировка одновременного редактирования (задача 5.1d):
+    # SQLAlchemy инкрементит поле при каждом flush изменений строки и добавляет
+    # прежнее значение в `WHERE` соответствующего `UPDATE`, страхуя от гонки
+    # между проверкой версии и записью. Форма редактирования получает версию в
+    # `GET /api/events/{id}` и возвращает её в `PUT`; рассинхрон →
+    # `409 event_modified_concurrently`.
+    row_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+
+    __mapper_args__ = {"version_id_col": row_version}
 
     project: Mapped["Project"] = relationship()
     creator: Mapped["User"] = relationship(foreign_keys=[created_by])

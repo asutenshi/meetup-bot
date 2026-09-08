@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.exc import StaleDataError
 
 from meetup_bot.db.enums import EventStatus, RSVPStatus
 from meetup_bot.db.models import Event, EventCoOrganizer, EventRSVP, Project, User
@@ -58,6 +59,44 @@ async def test_event_defaults(session: AsyncSession) -> None:
     assert event.attendance_finalized_at is None
     assert event.created_at is not None
     assert event.updated_at is not None
+    assert event.row_version == 1
+
+
+async def test_event_row_version_increments_on_change(session: AsyncSession) -> None:
+    """`version_id_col`: SQLAlchemy инкрементит `row_version` при каждом flush
+    изменений строки — основа оптимистичной блокировки редактирования (5.1d)."""
+    event = await _event(session)
+    await session.commit()
+    assert event.row_version == 1
+
+    event.location = "Другой лес"
+    await session.commit()
+    assert event.row_version == 2
+
+    event.description = "Зимний поход"
+    await session.commit()
+    assert event.row_version == 3
+
+
+async def test_event_stale_update_raises(session: AsyncSession) -> None:
+    """Если строку успели изменить мимо нашей сессии — flush падает
+    `StaleDataError` (страховка `409` в `PUT /api/events/{id}`, 5.1d)."""
+    event = await _event(session)
+    await session.commit()
+
+    # параллельная правка в обход ORM: версия строки уходит вперёд, объект в
+    # сессии всё ещё думает, что она равна 1
+    await session.execute(
+        Event.__table__.update()
+        .where(Event.__table__.c.id == event.id)
+        .values(row_version=Event.__table__.c.row_version + 1)
+    )
+    await session.commit()
+
+    event.location = "Поздно"
+    with pytest.raises(StaleDataError):
+        await session.flush()
+    await session.rollback()
 
 
 async def test_event_full_payload_roundtrip(session: AsyncSession) -> None:

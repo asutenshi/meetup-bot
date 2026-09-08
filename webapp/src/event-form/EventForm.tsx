@@ -70,11 +70,17 @@ export function EventForm({
   const [budget, setBudget] = useState('');
   const [seats, setSeats] = useState('');
   const [coOrganizers, setCoOrganizers] = useState<Set<number>>(new Set());
+  // Версия строки мероприятия из `GET` — уходит обратно в `PUT` для
+  // оптимистичной блокировки одновременного редактирования (задача 5.1d).
+  const [rowVersion, setRowVersion] = useState<number | null>(null);
 
   const [errors, setErrors] = useState<Errors>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [done, setDone] = useState<{ notified: number } | null>(null);
+  // Инкремент → повторная загрузка контекста (после `409` о параллельной правке
+  // подставляем актуальные значения полей и свежую `rowVersion`).
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Отдельные поля даты и времени склеиваем в значение datetime-local.
   const startsAt = combineLocal(startDate, startTime);
@@ -124,6 +130,7 @@ export function EventForm({
             context.event.seats_limit !== null ? String(context.event.seats_limit) : '',
           );
           setCoOrganizers(new Set(context.event.co_organizer_user_ids));
+          setRowVersion(context.event.row_version);
         })
         .catch(fail);
     } else {
@@ -144,7 +151,7 @@ export function EventForm({
     return () => {
       alive = false;
     };
-  }, [eventId]);
+  }, [eventId, reloadKey]);
 
   const members = useMemo(
     () => (load.kind === 'ready' ? load.data.members : []),
@@ -262,7 +269,10 @@ export function EventForm({
     setSubmitError(null);
     try {
       if (eventId !== null) {
-        const result = await updateEvent(eventId, body);
+        const result = await updateEvent(eventId, {
+          ...body,
+          expected_row_version: rowVersion ?? 0,
+        });
         setDone({ notified: result.notified_going });
       } else {
         await createEvent(body);
@@ -273,6 +283,18 @@ export function EventForm({
         setSubmitError(`${STALE_SESSION_MESSAGE} Введённое, к сожалению, не сохранится.`);
       } else if (error instanceof ApiError && error.status === 403) {
         setSubmitError('Нет прав на изменение этого мероприятия.');
+      } else if (
+        error instanceof ApiError &&
+        error.status === 409 &&
+        error.detail === 'event_modified_concurrently'
+      ) {
+        // Другой со-организатор сохранил правки, пока была открыта форма.
+        // Подтягиваем актуальные значения и просим сохранить заново.
+        setReloadKey((key) => key + 1);
+        setSubmitError(
+          'Мероприятие только что изменил кто-то ещё. Форма перезагружена с ' +
+            'актуальными данными — проверьте их и сохраните заново.',
+        );
       } else if (error instanceof ApiError && (error.status === 404 || error.status === 409)) {
         setSubmitError('Мероприятие уже нельзя изменить — отменено или прошло.');
       } else {
