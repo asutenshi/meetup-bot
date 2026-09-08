@@ -1,4 +1,5 @@
 import datetime
+from typing import Any
 
 import pytest
 from sqlalchemy import select
@@ -213,3 +214,121 @@ def test_rsvp_start_payload_round_trip(
 )
 def test_parse_rsvp_start_payload_rejects_non_matching(payload: str) -> None:
     assert parse_rsvp_start_payload(payload) is None
+
+
+# --- гонки при повторных кликах по RSVP (задача 5.1b) --------------------------
+
+
+def _stub_first_rsvp_read_stale(session: AsyncSession) -> None:
+    """Патчит `session.scalar` так, что ПЕРВОЕ чтение, вернувшее строку
+    `EventRSVP`, отдаёт `None`. Этим эмулируем гонку: между нашим SELECT и
+    COMMIT конкурентная корутина того же участника уже вставила свою строку, а
+    мы этого «не увидели» и пойдём вставлять свою. Повторные чтения (в ветке
+    восстановления после `IntegrityError`) проходят как есть."""
+    real_scalar = session.scalar
+    fired = False
+
+    async def scalar_with_stale_read(stmt: Any, *args: Any, **kwargs: Any) -> Any:
+        nonlocal fired
+        result = await real_scalar(stmt, *args, **kwargs)
+        if not fired and isinstance(result, EventRSVP):
+            fired = True
+            return None
+        return result
+
+    session.scalar = scalar_with_stale_read  # type: ignore[method-assign]
+
+
+async def test_set_rsvp_recovers_from_insert_race(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Конкурент того же участника уже вставил строку `EventRSVP` (в БД она
+    есть), но наш SELECT её «не увидел» — на INSERT ловим `IntegrityError`,
+    перечитываем чужую строку и применяем свой статус как update, не роняя
+    вызов в 500."""
+    ids = await _seed(session_factory)
+    async with session_factory() as other:
+        other.add(
+            EventRSVP(
+                event_id=ids["event_id"],
+                user_id=ids["member_id"],
+                status=RSVPStatus.NOT_GOING,
+                updated_by=ids["member_id"],
+            )
+        )
+        await other.commit()
+
+    async with session_factory() as session:
+        _stub_first_rsvp_read_stale(session)
+        result = await set_rsvp(
+            session,
+            event_id=ids["event_id"],
+            tg_user_id=_MEMBER_TG_ID,
+            target=RSVPStatus.GOING,
+        )
+
+    assert result == (RsvpOutcome.GOING, True)
+    async with session_factory() as session:
+        rows = list(await session.scalars(select(EventRSVP)))
+    assert len(rows) == 1
+    assert rows[0].status == RSVPStatus.GOING
+    assert rows[0].updated_by == ids["member_id"]
+
+
+async def test_set_rsvp_recovers_from_insert_race_same_target(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Тот же гон, но конкурент выставил ровно наш статус — восстановление
+    отдаёт `changed=False`, вызывающий не станет зря перерисовывать анонс."""
+    ids = await _seed(session_factory)
+    async with session_factory() as other:
+        other.add(
+            EventRSVP(
+                event_id=ids["event_id"],
+                user_id=ids["member_id"],
+                status=RSVPStatus.GOING,
+                updated_by=ids["member_id"],
+            )
+        )
+        await other.commit()
+
+    async with session_factory() as session:
+        _stub_first_rsvp_read_stale(session)
+        result = await set_rsvp(
+            session,
+            event_id=ids["event_id"],
+            tg_user_id=_MEMBER_TG_ID,
+            target=RSVPStatus.GOING,
+        )
+
+    assert result == (RsvpOutcome.GOING, False)
+    async with session_factory() as session:
+        rows = list(await session.scalars(select(EventRSVP)))
+    assert len(rows) == 1
+
+
+async def test_set_rsvp_sequential_calls_unaffected(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Регрессия: без гонки (последовательные вызовы) `changed`/`RsvpOutcome`
+    прежние — обработчик `IntegrityError` в тихом пути не мешает."""
+    ids = await _seed(session_factory)
+    async with session_factory() as session:
+        first = await set_rsvp(
+            session,
+            event_id=ids["event_id"],
+            tg_user_id=_MEMBER_TG_ID,
+            target=RSVPStatus.GOING,
+        )
+    async with session_factory() as session:
+        second = await set_rsvp(
+            session,
+            event_id=ids["event_id"],
+            tg_user_id=_MEMBER_TG_ID,
+            target=RSVPStatus.NOT_GOING,
+        )
+    assert first == (RsvpOutcome.GOING, True)
+    assert second == (RsvpOutcome.NOT_GOING, True)
+    async with session_factory() as session:
+        rows = list(await session.scalars(select(EventRSVP)))
+    assert [r.status for r in rows] == [RSVPStatus.NOT_GOING]

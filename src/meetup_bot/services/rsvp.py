@@ -7,6 +7,11 @@
 «❌ Не участвую» у уже отмеченного `not_going` снимает отметку целиком — строка
 удаляется, человек возвращается в группу «ещё думает».
 
+Два почти одновременных клика одного человека (двойной тап под анонсом либо
+кнопка анонса + экран Web App, каждый со своей сессией) не должны ронять ручку в
+500: гонку на вставку ловим по `IntegrityError` (перечитываем чужую строку и
+применяем свой статус как update), снятие отметки делаем идемпотентным DELETE.
+
 Живое обновление анонса вынесено в `refresh_announcement_after_rsvp` и остаётся
 за вызывающим: его зовут уже после быстрого ответа человеку и глушат ошибку
 Bot API, чтобы севшая сеть до Telegram не теряла саму отметку (см. коммент там).
@@ -23,7 +28,8 @@ from typing import NamedTuple
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meetup_bot.db.enums import EventStatus, MembershipStatus, RSVPStatus
@@ -184,11 +190,16 @@ async def set_rsvp(
     )
     if user is None:
         raise RsvpError("not_registered")
+    # Дальше работаем с локальным `member_id`, а не `user.id`: после
+    # `session.rollback()` в ветке восстановления ниже ORM-атрибуты `user`
+    # протухают, и обращение к `user.id` полезло бы синхронно грузить их из БД
+    # (в async-контексте — `MissingGreenlet`).
+    member_id = user.id
 
     rsvp = await session.scalar(
         select(EventRSVP).where(
             EventRSVP.event_id == event_id,
-            EventRSVP.user_id == user.id,
+            EventRSVP.user_id == member_id,
         )
     )
     # Повторный клик по «❌ Не участвую» у уже отмеченного not_going снимает
@@ -199,7 +210,16 @@ async def set_rsvp(
         and target == RSVPStatus.NOT_GOING
         and rsvp.status == RSVPStatus.NOT_GOING
     ):
-        await session.delete(rsvp)
+        # Удаляем явным DELETE ... WHERE, а не `session.delete(rsvp)`: так
+        # двойной тап по «❌ Не участвую» двумя корутинами безопасен —
+        # проигравшая просто удалит 0 строк (итог тот же), без предупреждения
+        # ORM «expected to delete 1 row(s); 0 were matched».
+        await session.execute(
+            delete(EventRSVP).where(
+                EventRSVP.event_id == event_id,
+                EventRSVP.user_id == member_id,
+            )
+        )
         await session.commit()
         return RsvpResult(RsvpOutcome.CLEARED, changed=True)
 
@@ -208,16 +228,36 @@ async def set_rsvp(
         session.add(
             EventRSVP(
                 event_id=event_id,
-                user_id=user.id,
+                user_id=member_id,
                 status=target,
-                updated_by=user.id,
+                updated_by=member_id,
             )
         )
+        try:
+            await session.commit()
+        except IntegrityError:
+            # Гонка на вставку: параллельная корутина того же участника (двойной
+            # тап под анонсом либо кнопка анонса + экран Web App) успела вставить
+            # свою строку `EventRSVP` между нашими SELECT и COMMIT — на нашем
+            # INSERT срабатывает UniqueConstraint(event_id, user_id). Откатываемся,
+            # перечитываем чужую строку и применяем свой target как update.
+            await session.rollback()
+            rsvp = await session.scalar(
+                select(EventRSVP).where(
+                    EventRSVP.event_id == event_id,
+                    EventRSVP.user_id == member_id,
+                )
+            )
+            if rsvp is None:
+                raise
+            changed = rsvp.status != target
+            rsvp.status = target
+            rsvp.updated_by = member_id
+            await session.commit()
     else:
         rsvp.status = target
-        rsvp.updated_by = user.id
-
-    await session.commit()
+        rsvp.updated_by = member_id
+        await session.commit()
 
     outcome = (
         RsvpOutcome.GOING if target == RSVPStatus.GOING else RsvpOutcome.NOT_GOING
