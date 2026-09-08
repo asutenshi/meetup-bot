@@ -21,3 +21,5 @@ def test_settings_defaults() -> None:
 
     assert settings.host == "0.0.0.0"
     assert settings.port == 8080
+    # Возрастная проверка initData по умолчанию необязательная (только лог).
+    assert settings.webapp_init_data_reject_stale is False

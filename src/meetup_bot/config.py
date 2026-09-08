@@ -21,9 +21,19 @@ class Settings(BaseSettings):
     # если каталог существует; иначе бэкенд поднимается без Mini App
     # (dev, CI без node). См. app._mount_webapp.
     webapp_dist_dir: str = "webapp/dist"
-    # Максимальный возраст `auth_date` в Telegram Web App `initData`, секунды.
-    # Старше — запрос отклоняется как возможный replay (TZ §3.2). Сутки.
-    webapp_init_data_max_age: int = 86400
+    # Возраст `auth_date` в Telegram Web App `initData` (секунды), после которого
+    # `initData` считается просроченной (TZ §3.2). По умолчанию это лишь порог
+    # для WARNING в лог — запрос всё равно проходит (см. ниже). Переопределяется
+    # env `WEBAPP_INIT_DATA_MAX_AGE`; `0` — не проверять возраст вовсе.
+    webapp_init_data_max_age: int = 604800
+    # Отклонять ли просроченную по возрасту `initData` (`401 expired`). По
+    # умолчанию НЕТ: настоящая аутентификация — HMAC-подпись, а `auth_date` лишь
+    # ограничивает окно replay; при этом Telegram-клиенты (в первую очередь
+    # Desktop) кэшируют launch-параметры и не обновляют `auth_date` даже между
+    # полными перезапусками — жёсткий отказ оставлял бы организатора без доступа
+    # без единого способа починить. `true` — вернуть строгий режим (env
+    # `WEBAPP_INIT_DATA_REJECT_STALE`).
+    webapp_init_data_reject_stale: bool = False
     # Интервал периодического прохода worker-процесса напоминаний, минуты
     # (TZ §3.4: точность до минуты не нужна, рекомендация 15–30 мин). См.
     # meetup_bot.scheduler.

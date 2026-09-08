@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 
 import {
   ApiError,
+  STALE_SESSION_MESSAGE,
   cancelEvent,
   fetchEventView,
+  loadErrorText,
   submitRsvp,
   type CancelEventResponse,
   type EventRsvpSummary,
@@ -91,7 +93,7 @@ export function EventScreen({
       setRsvp(fresh.rsvp);
     } catch (error: unknown) {
       if (error instanceof ApiError && error.status === 401) {
-        setRsvpError('Сессия устарела — переоткройте Mini App.');
+        setRsvpError(STALE_SESSION_MESSAGE);
       } else if (error instanceof ApiError && error.status === 409) {
         setRsvpError('Отметиться уже нельзя — мероприятие отменено или прошло.');
       } else {
@@ -110,7 +112,7 @@ export function EventScreen({
       setCancelDone(await cancelEvent(eventId));
     } catch (error: unknown) {
       if (error instanceof ApiError && error.status === 401) {
-        setCancelError('Сессия устарела — переоткройте Mini App.');
+        setCancelError(STALE_SESSION_MESSAGE);
       } else if (error instanceof ApiError && error.status === 403) {
         setCancelError('Нет прав на отмену этого мероприятия.');
       } else if (
@@ -170,9 +172,16 @@ export function EventScreen({
           {load.kind === 'error' && (
             <>
               <p className="es-state__title">Не удалось загрузить</p>
-              <p className="es-state__text">
-                Попробуйте переоткрыть Mini App. Код: {load.detail}
-              </p>
+              <p className="es-state__text">{loadErrorText(load.detail)}</p>
+              <div className="es-cancel__actions">
+                <button
+                  type="button"
+                  className="es-cancel__btn es-cancel__btn--primary"
+                  onClick={closeMiniApp}
+                >
+                  Закрыть
+                </button>
+              </div>
             </>
           )}
         </div>

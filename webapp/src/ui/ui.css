@@ -77,3 +77,19 @@
   font-size: 12.5px;
   color: var(--tg-destructive);
 }
+
+/*
+  Кнопка действия в центрированных состояниях-заглушках (например «Закрыть»
+  на экране устаревшей сессии). Формы со своим футером используют собственные
+  кнопки (ef-submit / st-submit).
+*/
+.ui-btn {
+  appearance: none;
+  border: 0;
+  border-radius: var(--radius-btn);
+  padding: 12px 22px;
+  cursor: pointer;
+  font: 600 15px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: var(--accent);
+  color: var(--accent-contrast);
+}

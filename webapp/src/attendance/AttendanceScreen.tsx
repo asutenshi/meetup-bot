@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 
-import { ApiError } from '../api/events';
+import { ApiError, loadErrorText } from '../api/events';
 import {
   fetchAttendanceContext,
   setAttendance,
   type AttendanceParticipant,
   type RsvpStatus,
 } from '../api/attendance';
+import { closeMiniApp } from '../telegram/init';
+import '../ui/ui.css';
 import { ParticipantRow } from './components';
 import './attendance.css';
 
@@ -144,7 +146,8 @@ export function AttendanceScreen({ eventId }: { eventId: number }) {
     return (
       <Centered
         title="Не удалось открыть экран"
-        text={`Попробуйте переоткрыть Mini App. Код: ${load.detail}`}
+        text={loadErrorText(load.detail)}
+        action={{ label: 'Закрыть', onClick: closeMiniApp }}
       />
     );
   }
@@ -192,11 +195,24 @@ export function AttendanceScreen({ eventId }: { eventId: number }) {
   );
 }
 
-function Centered({ title, text }: { title: string; text?: string }) {
+function Centered({
+  title,
+  text,
+  action,
+}: {
+  title: string;
+  text?: string;
+  action?: { label: string; onClick: () => void };
+}) {
   return (
     <div className="at-state">
       <h1 className="at-state__title">{title}</h1>
       {text && <p className="at-state__text">{text}</p>}
+      {action && (
+        <button type="button" className="ui-btn" onClick={action.onClick}>
+          {action.label}
+        </button>
+      )}
     </div>
   );
 }
