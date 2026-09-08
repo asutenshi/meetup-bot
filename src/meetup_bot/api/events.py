@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.exc import StaleDataError
 
 from meetup_bot.api.context import ProjectContext, get_bot, require_project_context
 from meetup_bot.db.enums import EventStatus, MembershipRole, MembershipStatus, RSVPStatus
@@ -99,7 +100,12 @@ class CreateEventRequest(BaseModel):
 
 class UpdateEventRequest(CreateEventRequest):
     """Тело `PUT /api/events/{id}` — те же поля, что и при создании (форма одна,
-    предзаполненная, TZ §4.3)."""
+    предзаполненная, TZ §4.3), плюс `expected_row_version` для оптимистичной
+    блокировки одновременного редактирования (задача 5.1d): версия, которую
+    форма получила в `GET /api/events/{id}`. Если строку успел изменить другой
+    со-организатор — `409 event_modified_concurrently`."""
+
+    expected_row_version: int
 
 
 class CreateEventResponse(BaseModel):
@@ -118,6 +124,9 @@ class EventFormData(BaseModel):
     budget_per_person: decimal.Decimal | None
     seats_limit: int | None
     co_organizer_user_ids: list[int]
+    # Текущая версия строки: форма возвращает её в `PUT` (оптимистичная
+    # блокировка, задача 5.1d).
+    row_version: int
 
 
 class EditEventContext(BaseModel):
@@ -285,6 +294,7 @@ async def event_edit_context(
             budget_per_person=event.budget_per_person,
             seats_limit=event.seats_limit,
             co_organizer_user_ids=co_ids,
+            row_version=event.row_version,
         ),
     )
 
@@ -298,6 +308,8 @@ async def update_event(
     bot: Annotated[Bot, Depends(get_bot)],
 ) -> UpdateEventResponse:
     event = await _load_manageable_event(session, ctx, event_id)
+    if event.row_version != payload.expected_row_version:
+        raise HTTPException(status_code=409, detail="event_modified_concurrently")
 
     members = await _active_members(session, project_id=ctx.project.id)
     members_by_id = {user.id: user for _, user in members}
@@ -331,7 +343,16 @@ async def update_event(
         if uid not in existing:
             session.add(EventCoOrganizer(event_id=event.id, user_id=uid))
 
-    await session.flush()
+    try:
+        await session.flush()
+    except StaleDataError as exc:
+        # Строку успели изменить между проверкой версии и flush — та же гонка,
+        # что ловит явная сверка `expected_row_version` выше (страховка на
+        # уровне БД, `version_id_col`).
+        await session.rollback()
+        raise HTTPException(
+            status_code=409, detail="event_modified_concurrently"
+        ) from exc
     await refresh_event_announcement(bot, session, event)
     await session.commit()
 

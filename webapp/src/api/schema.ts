@@ -339,6 +339,8 @@ export interface components {
             seats_limit: number | null;
             /** Co Organizer User Ids */
             co_organizer_user_ids: number[];
+            /** Row Version */
+            row_version: number;
         };
         /** EventFormMember */
         EventFormMember: {
@@ -523,7 +525,10 @@ export interface components {
         /**
          * UpdateEventRequest
          * @description Тело `PUT /api/events/{id}` — те же поля, что и при создании (форма одна,
-         *     предзаполненная, TZ §4.3).
+         *     предзаполненная, TZ §4.3), плюс `expected_row_version` для оптимистичной
+         *     блокировки одновременного редактирования (задача 5.1d): версия, которую
+         *     форма получила в `GET /api/events/{id}`. Если строку успел изменить другой
+         *     со-организатор — `409 event_modified_concurrently`.
          */
         UpdateEventRequest: {
             /**
@@ -545,6 +550,8 @@ export interface components {
             seats_limit?: number | null;
             /** Co Organizer User Ids */
             co_organizer_user_ids?: number[];
+            /** Expected Row Version */
+            expected_row_version: number;
         };
         /** UpdateEventResponse */
         UpdateEventResponse: {
