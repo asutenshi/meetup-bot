@@ -407,13 +407,16 @@ async def test_delivery_failure_to_one_recipient_does_not_block_others(
         return await real_send(**kwargs)
 
     monkeypatch.setattr(bot, "send_message", _maybe_blocked)
-    caplog.set_level(logging.WARNING, logger="meetup_bot.scheduler")
+    caplog.set_level(logging.INFO, logger="meetup_bot.scheduler")
 
     await escalate_missed_events(session, bot, now=AT_SEND_HOUR)
 
     assert len(_texts_to(fake_bot_api, ok_admin.tg_user_id)) == 1
     assert membership.last_escalation_sent_at == AT_SEND_HOUR
-    assert "не доставлено" in caplog.text
+    # 403 → получатель помечен как заблокировавший бота (TZ §6.2, задача 5.1)
+    assert blocked_admin.bot_blocked_at is not None
+    assert ok_admin.bot_blocked_at is None
+    assert "заблокировал бота" in caplog.text
 
 
 async def test_runs_without_bot(session: AsyncSession) -> None:

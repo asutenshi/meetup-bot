@@ -114,6 +114,13 @@ class User(Base):
     last_seen_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # Момент, когда стало известно, что человек заблокировал бота в личке
+    # (`my_chat_member` → `kicked` либо `403 bot was blocked` при отправке,
+    # TZ §6.2, задача 5.1). Пока не `null` — worker не шлёт этому человеку личные
+    # напоминания/эскалации, чтобы не долбить в пустоту. Сбрасывается, как только
+    # человек снова доступен (разблокировал, написал боту, успешно получил
+    # сообщение).
+    bot_blocked_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ProjectMembership(Base):
