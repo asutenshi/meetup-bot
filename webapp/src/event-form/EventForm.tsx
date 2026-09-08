@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import {
   ApiError,
+  STALE_SESSION_MESSAGE,
   createEvent,
   fetchEditEventContext,
   fetchEventFormContext,
+  loadErrorText,
   updateEvent,
   type CreateEventRequest,
   type EventFormMember,
@@ -190,7 +192,8 @@ export function EventForm({
     return shell(
       <CenteredState
         title="Не удалось открыть форму"
-        text={`Попробуйте переоткрыть Mini App. Код: ${load.detail}`}
+        text={loadErrorText(load.detail)}
+        action={{ label: 'Закрыть', onClick: closeMiniApp }}
       />,
     );
   }
@@ -267,7 +270,7 @@ export function EventForm({
       }
     } catch (error: unknown) {
       if (error instanceof ApiError && error.status === 401) {
-        setSubmitError('Сессия устарела — переоткройте Mini App.');
+        setSubmitError(`${STALE_SESSION_MESSAGE} Введённое, к сожалению, не сохранится.`);
       } else if (error instanceof ApiError && error.status === 403) {
         setSubmitError('Нет прав на изменение этого мероприятия.');
       } else if (error instanceof ApiError && (error.status === 404 || error.status === 409)) {

@@ -9,6 +9,8 @@ import {
   type ProjectSettingsUpdate,
   type SettingField,
 } from '../api/settings';
+import { STALE_SESSION_MESSAGE, loadErrorText } from '../api/events';
+import { closeMiniApp } from '../telegram/init';
 import { Card, Field } from '../ui/Card';
 import { ScreenBar } from '../ui/ScreenBar';
 import './settings.css';
@@ -148,7 +150,7 @@ export function SettingsScreen({
       if (error instanceof SettingFieldError) {
         setFieldError({ field: error.field, message: error.message });
       } else if (error instanceof ApiError && error.status === 401) {
-        setSubmitError('Сессия устарела — переоткройте Mini App.');
+        setSubmitError(STALE_SESSION_MESSAGE);
       } else if (error instanceof ApiError && error.status === 403) {
         setSubmitError('Настройки может менять только администратор проекта.');
       } else if (error instanceof ApiError && error.status === 422) {
@@ -190,7 +192,8 @@ export function SettingsScreen({
       <Shell onBack={onBack}>
         <Centered
           title="Не удалось открыть настройки"
-          text={`Попробуйте переоткрыть Mini App. Код: ${load.detail}`}
+          text={loadErrorText(load.detail)}
+          action={{ label: 'Закрыть', onClick: closeMiniApp }}
         />
       </Shell>
     );
@@ -261,11 +264,24 @@ function Shell({ onBack, children }: { onBack: () => void; children: ReactNode }
   );
 }
 
-function Centered({ title, text }: { title: string; text?: string }) {
+function Centered({
+  title,
+  text,
+  action,
+}: {
+  title: string;
+  text?: string;
+  action?: { label: string; onClick: () => void };
+}) {
   return (
     <div className="st-state">
       <h1 className="st-state__title">{title}</h1>
       {text && <p className="st-state__text">{text}</p>}
+      {action && (
+        <button type="button" className="st-submit" onClick={action.onClick}>
+          {action.label}
+        </button>
+      )}
     </div>
   );
 }

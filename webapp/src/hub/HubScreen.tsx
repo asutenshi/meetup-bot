@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 
-import { ApiError } from '../api/events';
+import { ApiError, loadErrorText } from '../api/events';
 import { fetchHome, fetchProjectEvents, type EventCard, type HomeProject } from '../api/home';
 import type { View } from '../nav/navigation';
+import { closeMiniApp } from '../telegram/init';
 import { Card } from '../ui/Card';
 import { formatWhen } from './format';
 import './hub.css';
@@ -42,12 +43,8 @@ export function HubScreen({ navigate }: { navigate: (view: View) => void }) {
       })
       .catch((error: unknown) => {
         if (!alive) return;
-        if (error instanceof ApiError && error.status === 401) {
-          setState({ kind: 'error', detail: 'session' });
-        } else {
-          const detail = error instanceof ApiError ? error.detail : 'network';
-          setState({ kind: 'error', detail });
-        }
+        const detail = error instanceof ApiError ? error.detail : 'network';
+        setState({ kind: 'error', detail });
       });
     return () => {
       alive = false;
@@ -62,11 +59,10 @@ export function HubScreen({ navigate }: { navigate: (view: View) => void }) {
     return (
       <div className="hub-state">
         <p className="hub-state__title">Не удалось загрузить</p>
-        <p className="hub-state__text">
-          {state.detail === 'session'
-            ? 'Сессия устарела — закройте и откройте Mini App заново.'
-            : `Попробуйте переоткрыть Mini App. Код: ${state.detail}`}
-        </p>
+        <p className="hub-state__text">{loadErrorText(state.detail)}</p>
+        <button type="button" className="ui-btn" onClick={closeMiniApp}>
+          Закрыть
+        </button>
       </div>
     );
   }

@@ -28,6 +28,38 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Коды `detail`, которые бэкенд отдаёт при провале валидации `initData`
+ * (`src/meetup_bot/api/webapp_auth.py`). `initData` фиксируется один раз при
+ * запуске Mini App и не обновляется, пока приложение просто свёрнуто, — от
+ * `expired` спасает только полное закрытие и повторный вход через бота.
+ */
+const STALE_SESSION_DETAILS = new Set(['expired', 'clock_skew']);
+
+export function isStaleSession(detail: string): boolean {
+  return STALE_SESSION_DETAILS.has(detail);
+}
+
+/**
+ * Инструкция при устаревшей `initData`: сворачивание Mini App не обновляет
+ * `auth_date`, помогает только полное закрытие и повторный вход через бота.
+ * Общий текст для экранов-заглушек и inline-ошибок действий.
+ */
+export const STALE_SESSION_MESSAGE =
+  'Сессия устарела. Полностью закройте Mini App — свайп вниз или «Закрыть», ' +
+  'не «свернуть», — и откройте экран заново через бота.';
+
+/**
+ * Текст экрана-заглушки при провале загрузки данных Web App. Для устаревшей
+ * сессии — конкретная инструкция, для сети/сервера — прежний общий текст с кодом.
+ */
+export function loadErrorText(detail: string): string {
+  if (isStaleSession(detail)) {
+    return STALE_SESSION_MESSAGE;
+  }
+  return `Попробуйте переоткрыть Mini App. Код: ${detail}`;
+}
+
 export async function readError(response: Response): Promise<ApiError> {
   let detail = `http_${response.status}`;
   try {

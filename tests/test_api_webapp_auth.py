@@ -84,14 +84,72 @@ def test_parse_init_data_rejects_tampered_payload() -> None:
     assert exc.value.reason == "invalid_signature"
 
 
-def test_parse_init_data_rejects_expired_auth_date() -> None:
+def test_parse_init_data_rejects_expired_when_strict() -> None:
     old = str(int(time.time()) - 3 * 3600)
     raw = _sign(_payload(auth_date=old))
 
     with pytest.raises(InitDataError) as exc:
-        parse_init_data(raw, bot_token=BOT_TOKEN, max_age=timedelta(hours=1))
+        parse_init_data(
+            raw, bot_token=BOT_TOKEN, max_age=timedelta(hours=1), reject_stale=True
+        )
 
     assert exc.value.reason == "expired"
+    assert exc.value.age_seconds is not None
+    assert exc.value.age_seconds == pytest.approx(3 * 3600, abs=5)
+    assert exc.value.max_age_seconds == 3600
+
+
+def test_parse_init_data_accepts_expired_when_not_strict(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    old = str(int(time.time()) - 3 * 3600)
+    raw = _sign(_payload(auth_date=old))
+    caplog.set_level(logging.WARNING, logger="meetup_bot.api")
+
+    data = parse_init_data(
+        raw, bot_token=BOT_TOKEN, max_age=timedelta(hours=1), reject_stale=False
+    )
+
+    assert data.user is not None
+    assert data.user.id == 42
+    (record,) = [r for r in caplog.records if r.message == "initData stale but accepted"]
+    assert record.age_seconds == pytest.approx(3 * 3600, abs=5)
+    assert record.max_age_seconds == 3600
+
+
+def test_parse_init_data_max_age_zero_skips_age_check() -> None:
+    old = str(int(time.time()) - 30 * 86400)
+    raw = _sign(_payload(auth_date=old))
+
+    data = parse_init_data(
+        raw, bot_token=BOT_TOKEN, max_age=timedelta(0), reject_stale=True
+    )
+
+    assert data.user is not None
+
+
+def test_parse_init_data_rejects_clock_skew() -> None:
+    # auth_date заметно в будущем относительно часов сервера.
+    future = str(int(time.time()) + 3600)
+    raw = _sign(_payload(auth_date=future))
+
+    with pytest.raises(InitDataError) as exc:
+        parse_init_data(raw, bot_token=BOT_TOKEN, max_age=timedelta(days=1))
+
+    assert exc.value.reason == "clock_skew"
+    assert exc.value.age_seconds is not None
+    assert exc.value.age_seconds < 0
+
+
+def test_parse_init_data_tolerates_small_clock_skew() -> None:
+    # Небольшой дрейф часов (в пределах допуска) не должен ломать валидацию.
+    future = str(int(time.time()) + 60)
+    raw = _sign(_payload(auth_date=future))
+
+    data = parse_init_data(raw, bot_token=BOT_TOKEN, max_age=timedelta(days=1))
+
+    assert data.user is not None
+    assert data.user.id == 42
 
 
 def test_parse_init_data_rejects_without_user() -> None:
@@ -149,13 +207,58 @@ async def test_dependency_401_on_bad_signature() -> None:
     assert response.json()["detail"] == "invalid_signature"
 
 
-async def test_dependency_respects_configured_max_age() -> None:
+async def test_dependency_accepts_stale_init_data_by_default(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Дефолт — необязательная проверка: просроченная initData проходит.
+    raw = _sign(_payload(auth_date=str(int(time.time()) - 120)))
+    caplog.set_level(logging.WARNING, logger="meetup_bot.api")
+
+    response = await _get(
+        _probe_app(webapp_init_data_max_age=60), {INIT_DATA_HEADER: raw}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"tg_user_id": 42}
+    assert any(r.message == "initData stale but accepted" for r in caplog.records)
+
+
+async def test_dependency_rejects_stale_init_data_in_strict_mode() -> None:
     raw = _sign(_payload(auth_date=str(int(time.time()) - 120)))
 
-    response = await _get(_probe_app(webapp_init_data_max_age=60), {INIT_DATA_HEADER: raw})
+    response = await _get(
+        _probe_app(webapp_init_data_max_age=60, webapp_init_data_reject_stale=True),
+        {INIT_DATA_HEADER: raw},
+    )
 
     assert response.status_code == 401
     assert response.json()["detail"] == "expired"
+
+
+async def test_dependency_reports_clock_skew() -> None:
+    raw = _sign(_payload(auth_date=str(int(time.time()) + 3600)))
+
+    response = await _get(_probe_app(), {INIT_DATA_HEADER: raw})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "clock_skew"
+
+
+async def test_expired_is_logged_with_age_in_strict_mode(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    raw = _sign(_payload(auth_date=str(int(time.time()) - 120)))
+    caplog.set_level(logging.INFO, logger="meetup_bot.api")
+
+    await _get(
+        _probe_app(webapp_init_data_max_age=60, webapp_init_data_reject_stale=True),
+        {INIT_DATA_HEADER: raw},
+    )
+
+    (record,) = [r for r in caplog.records if r.message == "initData validation failed"]
+    assert record.reason == "expired"
+    assert record.age_seconds == pytest.approx(120, abs=5)
+    assert record.max_age_seconds == 60
 
 
 async def test_invalid_init_data_is_logged_as_warning(
